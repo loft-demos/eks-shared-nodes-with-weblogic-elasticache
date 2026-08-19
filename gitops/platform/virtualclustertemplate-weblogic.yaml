@@ -161,8 +161,12 @@ spec:
         deploy:
           argoCD:
             applications:
-              - name: weblogic-domain
-                displayName: WebLogic Domain, ElastiCache, and HTTPRoute
+              # Must be unique across the project: two tenants both claiming
+              # "weblogic-domain" fails with "argocd application name ... is already used
+              # by another tenant cluster in this project". Omitting name lets the Platform
+              # generate one, but a templated name stays readable in the Argo CD UI.
+              - name: '{{ .Values.loft.virtualClusterName }}-weblogic-domain'
+                displayName: 'WebLogic Domain, cache, and HTTPRoute ({{ .Values.loft.virtualClusterName }})'
                 target: vCluster
                 template:
                   name: vcluster-weblogic-domain-app

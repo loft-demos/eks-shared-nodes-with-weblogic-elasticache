@@ -100,6 +100,29 @@ than by CRDs, and it defaults fields on write, so Argo CD can report drift on fi
 never set. The bootstrap Application carries an `ignoreDifferences` block for the ones seen
 so far.
 
+## Argo CD application names are project-scoped
+
+`deploy.argoCD.applications[].name` must be unique across the whole project, not just the
+tenant. A static name works for one tenant and then fails on the second with:
+
+```text
+argocd application name "weblogic-domain" is already used by another tenant cluster
+in this project
+```
+
+Template it with the tenant name:
+
+```yaml
+deploy:
+  argoCD:
+    applications:
+      - name: '{{ .Values.loft.virtualClusterName }}-weblogic-domain'
+```
+
+Omitting `name` entirely also works — the Platform generates a unique one — but a
+templated name stays readable in the Argo CD UI, which matters when several tenants are
+on screen at once.
+
 ## What the connector does and does not cover
 
 The connector's `server` governs one path: **Platform → Argo CD API**. An in-cluster

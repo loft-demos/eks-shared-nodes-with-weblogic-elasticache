@@ -38,7 +38,7 @@ developer sees them where they expect. The same round trip carries an ACK
 | [`docs/05-tls-dns-ingress.md`](docs/05-tls-dns-ingress.md) | cert-manager DNS01, wildcard cert, Envoy Gateway |
 | [`docs/06-api-driven-tenant-creation.md`](docs/06-api-driven-tenant-creation.md) | Creating tenants from REST, the Go client, or Git |
 | [`gitops/`](gitops/) | Platform objects and tenants, managed by Argo CD |
-| `examples/` | Day-0 manifests and Helm values referenced by the docs |
+| `examples/` | Day-0 manifests and Helm values referenced by the docs, including the default StorageClass |
 | `charts/weblogic-domain/` | The tenant-side Helm chart |
 | `app/` | Demo servlet, WDT model, auxiliary image build |
 | `scripts/` | Bootstrap, chart fetch, DNS, connector, pre-demo verifier |
@@ -59,6 +59,11 @@ that detection never fires. → [01](docs/01-crd-sync.md#configmaps)
 names. The in-tenant cache works because vCluster recreates the tenant Service with the
 host Service's ClusterIP, so publishing the IP works where the name does not.
 → [02](docs/02-cache-backends.md#reaching-an-in-tenant-cache)
+
+**EKS gives you an EBS CSI driver but no StorageClass**, and the `gp2` class it ships uses
+a provisioner removed in Kubernetes 1.31. Tenant control planes need a PVC for embedded
+etcd, so with no default class no tenant starts — and it surfaces as an Argo CD 504, not a
+storage error. → [03](docs/03-eks-and-pod-identity.md#a-default-storageclass-is-required)
 
 **A managed cache takes minutes.** `cacheMode: in-tenant` gives a tenant a working Redis in
 seconds with no AWS, against the identical application — which makes creating a tenant

@@ -60,6 +60,30 @@ expect_field() {
   fi
 }
 
+# Without a default StorageClass no tenant control plane can start, and the error
+# surfaces as an Argo CD integration failure rather than as a storage problem.
+DEFAULT_SC="$(kubectl get storageclass -o jsonpath='{range .items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name}{" "}{.provisioner}{"\n"}{end}' 2>/dev/null | head -1)"
+echo "Storage"
+if [[ -n "$DEFAULT_SC" && "$DEFAULT_SC" == *"ebs.csi.aws.com"* ]]; then
+  printf '  \033[32mok\033[0m    default StorageClass uses the CSI driver (%s)\n' "${DEFAULT_SC%% *}"
+  pass=$((pass + 1))
+elif [[ -n "$DEFAULT_SC" ]]; then
+  printf '  \033[31mFAIL\033[0m  default StorageClass %s uses %s - the in-tree provisioner was removed in 1.31\n' "${DEFAULT_SC%% *}" "${DEFAULT_SC##* }"
+  fail=$((fail + 1))
+else
+  printf '  \033[31mFAIL\033[0m  no default StorageClass - tenant control planes will sit Pending\n'
+  fail=$((fail + 1))
+fi
+PENDING="$(kubectl get pvc -A --no-headers 2>/dev/null | grep -c Pending || true)"
+if [[ "${PENDING:-0}" -gt 0 ]]; then
+  printf '  \033[31mFAIL\033[0m  %s PVC(s) Pending\n' "$PENDING"
+  fail=$((fail + 1))
+else
+  printf '  \033[32mok\033[0m    no Pending PVCs\n'
+  pass=$((pass + 1))
+fi
+
+echo
 echo "Platform and ingress"
 check "vCluster Platform is running" \
   kubectl -n vcluster-platform get deploy loft
