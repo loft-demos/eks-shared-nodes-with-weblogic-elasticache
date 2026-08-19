@@ -188,7 +188,7 @@ spec:
         cache, not a managed AWS resource, so the common case should not leave billing
         behind when a tenant is forgotten.
       type: string
-      defaultValue: in-tenant
+      defaultValue: "in-tenant"
       options:
         - in-tenant
         - elasticache
@@ -198,7 +198,7 @@ spec:
       label: ElastiCache Node Type
       description: Only used when Cache Backend is elasticache.
       type: string
-      defaultValue: cache.t4g.micro
+      defaultValue: "cache.t4g.micro"
       options:
         - cache.t4g.micro
         - cache.t4g.small
@@ -207,7 +207,7 @@ spec:
     - variable: managedServerCount
       label: WebLogic Managed Servers
       type: number
-      defaultValue: 3
+      defaultValue: "3"
       min: 1
       max: 5
       section: WebLogic
@@ -215,7 +215,7 @@ spec:
       label: Sleep After Inactivity
       description: Idle period before the tenant workloads are scaled to zero.
       type: string
-      defaultValue: 2h
+      defaultValue: "2h"
       section: Cost Controls
   access:
     - verbs:

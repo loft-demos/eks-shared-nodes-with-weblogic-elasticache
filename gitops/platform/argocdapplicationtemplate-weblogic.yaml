@@ -80,15 +80,15 @@ spec:
     - variable: namespace
       label: Tenant Namespace
       type: string
-      defaultValue: wi
+      defaultValue: "wi"
     - variable: domainUID
       label: WebLogic Domain UID
       type: string
-      defaultValue: wi-domain
+      defaultValue: "wi-domain"
     - variable: managedServerCount
       label: Managed Servers
       type: number
-      defaultValue: 3
+      defaultValue: "3"
       min: 1
       max: 5
     - variable: appHost
@@ -97,16 +97,16 @@ spec:
     - variable: appContextPath
       label: Application Context Path
       type: string
-      defaultValue: /demo
+      defaultValue: "/demo"
     - variable: cacheMode
       label: Cache Backend
       type: string
-      defaultValue: in-tenant
+      defaultValue: "in-tenant"
       section: Cache
     - variable: cacheNodeType
       label: Cache Node Type
       type: string
-      defaultValue: cache.t4g.micro
+      defaultValue: "cache.t4g.micro"
       section: Cache
     - variable: cacheSubnetGroupName
       label: Cache Subnet Group
