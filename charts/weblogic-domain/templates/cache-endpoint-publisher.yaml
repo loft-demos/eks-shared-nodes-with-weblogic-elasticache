@@ -1,0 +1,260 @@
+{{- if and (include "weblogic-demo.cacheEnabled" .) .Values.cachePublisher.enabled }}
+{{- $ns := include "weblogic-demo.namespace" . -}}
+{{- $name := include "weblogic-demo.cachePublisherName" . -}}
+{{/*
+Watches the tenant-side ReplicationGroup and copies the primary endpoint into the
+endpoint ConfigMap.
+
+This runs inside the tenant on purpose. vCluster syncs the ReplicationGroup up to the
+backing namespace, the host ACK controller reconciles it against AWS, and the status
+comes back down into the tenant copy. A tenant workload reading that status is the
+cleanest proof that status sync works, and it keeps the AWS credentials on the host side
+where the platform team owns them.
+
+Deliberately no kubectl image: the distroless kubectl image has no shell, and the
+alternatives are either gone from public registries or a 200MB kitchen sink. Python
+stdlib against the in-cluster API is smaller and does not depend on a third-party image.
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  labels:
+    app.kubernetes.io/part-of: weblogic-demo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  labels:
+    app.kubernetes.io/part-of: weblogic-demo
+rules:
+  {{- if include "weblogic-demo.isElastiCache" . }}
+  - apiGroups: ["elasticache.services.k8s.aws"]
+    resources: ["replicationgroups"]
+    resourceNames: [{{ include "weblogic-demo.replicationGroupID" . | quote }}]
+    verbs: ["get"]
+  {{- else }}
+  - apiGroups: [""]
+    resources: ["services"]
+    resourceNames: [{{ include "weblogic-demo.cacheServiceName" . | quote }}]
+    verbs: ["get"]
+  {{- end }}
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: [{{ include "weblogic-demo.cacheConfigMapName" . | quote }}]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  labels:
+    app.kubernetes.io/part-of: weblogic-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ $ns }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-script
+  namespace: {{ $ns }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  labels:
+    app.kubernetes.io/part-of: weblogic-demo
+data:
+  publish.py: |
+    """Mirror the ACK ReplicationGroup endpoint into a ConfigMap the WebLogic pods mount."""
+    import json
+    import os
+    import ssl
+    import sys
+    import time
+    import urllib.error
+    import urllib.request
+
+    API = "https://kubernetes.default.svc"
+    SA = "/var/run/secrets/kubernetes.io/serviceaccount"
+    NAMESPACE = os.environ["NAMESPACE"]
+    CACHE_MODE = os.environ.get("CACHE_MODE", "elasticache")
+    REPLICATION_GROUP = os.environ["REPLICATION_GROUP"]
+    CACHE_SERVICE = os.environ["CACHE_SERVICE"]
+    CONFIGMAP = os.environ["CONFIGMAP"]
+    INTERVAL = int(os.environ.get("INTERVAL_SECONDS", "15"))
+
+    CONTEXT = ssl.create_default_context(cafile=SA + "/ca.crt")
+
+
+    def token():
+        # Read on every call: projected service account tokens are rotated, and a
+        # publisher that cached one at startup would 401 forever an hour into the demo.
+        with open(SA + "/token") as handle:
+            return handle.read().strip()
+
+
+    def request(method, path, body=None, content_type=None):
+        req = urllib.request.Request(API + path, method=method)
+        req.add_header("Authorization", "Bearer " + token())
+        req.add_header("Accept", "application/json")
+        if body is not None:
+            payload = json.dumps(body).encode()
+            req.add_header("Content-Type", content_type)
+            req.data = payload
+        with urllib.request.urlopen(req, context=CONTEXT, timeout=15) as response:
+            return json.loads(response.read())
+
+
+    def read_replication_group():
+        path = "/apis/elasticache.services.k8s.aws/v1alpha1/namespaces/{}/replicationgroups/{}".format(
+            NAMESPACE, REPLICATION_GROUP
+        )
+        return request("GET", path)
+
+
+    def read_service():
+        return request("GET", "/api/v1/namespaces/{}/services/{}".format(NAMESPACE, CACHE_SERVICE))
+
+
+    def patch_configmap(data):
+        path = "/api/v1/namespaces/{}/configmaps/{}".format(NAMESPACE, CONFIGMAP)
+        return request("PATCH", path, {"data": data}, "application/merge-patch+json")
+
+
+    def in_tenant_state():
+        """Publish the Service ClusterIP, not its DNS name.
+
+        The WebLogic pods are created on the Control Plane Cluster by the operator, so they
+        resolve against host CoreDNS and a tenant Service name does not exist for them.
+        vCluster recreates the tenant Service with the host Service's ClusterIP, so the IP
+        is reachable from both sides.
+        """
+        svc = read_service()
+        ip = (svc.get("spec") or {}).get("clusterIP") or ""
+        ports = (svc.get("spec") or {}).get("ports") or [{}]
+        if ip in ("", "None"):
+            return {"endpoint": "", "port": "6379", "tls": "false", "state": "pending"}
+        return {
+            "endpoint": ip,
+            "port": str(ports[0].get("port") or 6379),
+            "tls": "false",
+            "state": "available",
+        }
+
+
+    def desired_state(group):
+        status = group.get("status", {})
+        spec = group.get("spec", {})
+        node_groups = status.get("nodeGroups") or []
+        endpoint = {}
+        if node_groups:
+            endpoint = node_groups[0].get("primaryEndpoint") or {}
+        # Cluster-mode-enabled groups report a configuration endpoint instead.
+        if not endpoint:
+            endpoint = status.get("configurationEndpoint") or {}
+        return {
+            "endpoint": endpoint.get("address") or "",
+            "port": str(endpoint.get("port") or spec.get("port") or 6379),
+            "tls": "true" if spec.get("transitEncryptionEnabled") else "false",
+            "state": status.get("status") or "unknown",
+        }
+
+
+    def main():
+        published = None
+        while True:
+            try:
+                if CACHE_MODE == "in-tenant":
+                    state = in_tenant_state()
+                else:
+                    state = desired_state(read_replication_group())
+                if state != published:
+                    patch_configmap(state)
+                    published = state
+                    print("published {}".format(state), flush=True)
+            except urllib.error.HTTPError as err:
+                print("api error {}: {}".format(err.code, err.reason), file=sys.stderr, flush=True)
+            except Exception as err:  # keep the loop alive through transient failures
+                print("publish failed: {}".format(err), file=sys.stderr, flush=True)
+            time.sleep(INTERVAL)
+
+
+    main()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/part-of: weblogic-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}
+        app.kubernetes.io/part-of: weblogic-demo
+    spec:
+      serviceAccountName: {{ $name }}
+      containers:
+        - name: publisher
+          image: {{ .Values.cachePublisher.image | quote }}
+          command: ["python3", "/opt/publisher/publish.py"]
+          env:
+            - name: NAMESPACE
+              value: {{ $ns | quote }}
+            - name: CACHE_MODE
+              value: {{ .Values.cache.mode | quote }}
+            - name: REPLICATION_GROUP
+              value: {{ include "weblogic-demo.replicationGroupID" . | quote }}
+            - name: CACHE_SERVICE
+              value: {{ include "weblogic-demo.cacheServiceName" . | quote }}
+            - name: CONFIGMAP
+              value: {{ include "weblogic-demo.cacheConfigMapName" . | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ .Values.cachePublisher.intervalSeconds | quote }}
+          volumeMounts:
+            - name: script
+              mountPath: /opt/publisher
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: script
+          configMap:
+            name: {{ $name }}-script
+{{- end }}

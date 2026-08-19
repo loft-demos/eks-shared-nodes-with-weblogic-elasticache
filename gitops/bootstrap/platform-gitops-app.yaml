@@ -1,0 +1,49 @@
+# The one thing applied by hand. Everything else under gitops/ is managed by Argo CD.
+#
+#   kubectl apply -f gitops/bootstrap/platform-gitops-app.yaml
+#
+# A plain recursive directory rather than a Helm chart or an ApplicationSet: these are a
+# handful of static manifests, and ordering is expressed with sync waves rather than with
+# separate Applications.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-objects
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/loft-demos/eks-shared-nodes-with-weblogic-elasticache.git
+    targetRevision: main
+    path: gitops
+    directory:
+      recurse: true
+      # bootstrap/ holds this Application itself; leaving it out avoids Argo CD managing
+      # the object that defines it.
+      exclude: 'bootstrap/*'
+  destination:
+    # The Control Plane Cluster. Project, VirtualClusterTemplate, ArgoCDApplicationTemplate
+    # and Cluster are cluster-scoped; VirtualClusterInstance is namespaced and carries its
+    # own metadata.namespace, so this value only supplies a default.
+    server: https://kubernetes.default.svc
+    namespace: vcluster-platform
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+  # Platform resources are served by an aggregated API server rather than by CRDs, and it
+  # defaults several status and spec fields on write. Without this, Argo CD can sit
+  # permanently OutOfSync on fields it never set.
+  ignoreDifferences:
+    - group: management.loft.sh
+      kind: Project
+      jsonPointers:
+        - /spec/access
+    - group: management.loft.sh
+      kind: Cluster
+      jsonPointers:
+        - /spec/access

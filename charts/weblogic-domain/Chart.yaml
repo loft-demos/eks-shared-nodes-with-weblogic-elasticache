@@ -1,0 +1,6 @@
+apiVersion: v2
+name: weblogic-domain
+description: Tenant-side WebLogic demo resources for the Example Corp vCluster POC
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

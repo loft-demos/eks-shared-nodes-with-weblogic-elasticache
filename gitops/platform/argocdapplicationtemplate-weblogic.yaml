@@ -1,0 +1,118 @@
+# Reusable Argo CD application template referenced by the tenant cluster template.
+# Register once, then every tenant gets the same app stack with per-tenant parameters.
+#
+#   kubectl apply -f vcluster-weblogic-domain-app-template.yaml
+apiVersion: management.loft.sh/v1
+kind: ArgoCDApplicationTemplate
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  name: vcluster-weblogic-domain-app
+spec:
+  displayName: vCluster WebLogic Domain App
+  description: >-
+    Deploys the tenant-side WebLogic Domain and Cluster, the ACK ElastiCache
+    ReplicationGroup, the cache endpoint publisher, the cache-clear Job, and the
+    HTTPRoute that attaches to the shared Envoy Gateway.
+  template:
+    spec:
+      project: default
+      source:
+        # Point this at a Git remote Argo CD can read that holds charts/weblogic-domain.
+        repoURL: https://github.com/loft-demos/eks-shared-nodes-with-weblogic-elasticache.git
+        targetRevision: main
+        path: charts/weblogic-domain
+        helm:
+          values: |-
+            namespace: "{{ .Values.namespace }}"
+            domainUID: "{{ .Values.domainUID }}"
+            managedServerCount: {{ .Values.managedServerCount }}
+            credentialsSecretName: wi-domain-credentials
+            runtimeEncryptionSecretName: wi-domain-runtime-encryption-secret
+            domain:
+              # OCR GA image: OK for demo/development under Oracle OTN terms after
+              # accepting the OCR terms. Use CPU/custom patched images for
+              # production-like runs. The demo WAR uses javax.servlet.*, so 14.1.2.0
+              # avoids a Jakarta EE 9.1 migration during the demo.
+              image: container-registry.oracle.com/middleware/weblogic:14.1.2.0-generic-jdk17-ol8
+              imagePullSecrets:
+                - name: ocr-pull-secret
+              auxiliaryImages:
+                - image: ghcr.io/loft-demos/vcluster-weblogic-demo-aux:0.1.0
+                  imagePullPolicy: IfNotPresent
+            demoApp:
+              enabled: true
+              contextPath: "{{ .Values.appContextPath }}"
+            cache:
+              mode: "{{ .Values.cacheMode }}"
+            elasticache:
+              cacheNodeType: "{{ .Values.cacheNodeType }}"
+              cacheSubnetGroupName: "{{ .Values.cacheSubnetGroupName }}"
+              securityGroupIDs:
+                - "{{ .Values.cacheSecurityGroupID }}"
+              extraTags:
+                tenant: "{{ .Values.domainUID }}"
+            httpRoute:
+              enabled: true
+              host: "{{ .Values.appHost }}"
+              parentRef:
+                name: shared-gw
+                namespace: envoy-gateway-system
+      destination: {}
+      # The endpoint publisher writes into this ConfigMap once AWS reports an address.
+      # Without this, Argo CD self-heal keeps resetting it to the empty placeholder and
+      # the app never sees a cache.
+      ignoreDifferences:
+        - group: ""
+          kind: ConfigMap
+          name: "{{ .Values.domainUID }}-cache-endpoint"
+          jsonPointers:
+            - /data
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+  # Declared so the Platform UI can render a form and so the values the tenant template
+  # passes through deploy.argoCD.applications[].template.parameters are validated.
+  parameters:
+    - variable: namespace
+      label: Tenant Namespace
+      type: string
+      defaultValue: wi
+    - variable: domainUID
+      label: WebLogic Domain UID
+      type: string
+      defaultValue: wi-domain
+    - variable: managedServerCount
+      label: Managed Servers
+      type: number
+      defaultValue: 3
+      min: 1
+      max: 5
+    - variable: appHost
+      label: Application Hostname
+      type: string
+    - variable: appContextPath
+      label: Application Context Path
+      type: string
+      defaultValue: /demo
+    - variable: cacheMode
+      label: Cache Backend
+      type: string
+      defaultValue: in-tenant
+      section: Cache
+    - variable: cacheNodeType
+      label: Cache Node Type
+      type: string
+      defaultValue: cache.t4g.micro
+      section: Cache
+    - variable: cacheSubnetGroupName
+      label: Cache Subnet Group
+      type: string
+      section: Cache
+    - variable: cacheSecurityGroupID
+      label: Cache Security Group
+      type: string
+      section: Cache

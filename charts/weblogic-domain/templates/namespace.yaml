@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4"
+  name: {{ include "weblogic-demo.namespace" . }}
+  labels:
+    app.kubernetes.io/part-of: weblogic-demo

@@ -1,0 +1,26 @@
+# Environment-specific configuration lives on the Platform Cluster resource, not in the
+# tenant template. The template reads these through .Values.loft.clusterAnnotations, so
+# the same template works against any Control Plane Cluster that carries the annotations.
+#
+# Same pattern as the auto-snapshots + EKS Pod Identity use case:
+#   vcp/vcluster-use-cases/auto-snapshots/aws-with-pod-identity
+#
+# Fill in the values printed by bootstrap-aws.sh, then:
+#   kubectl apply -f cluster-annotations.yaml
+apiVersion: management.loft.sh/v1
+kind: Cluster
+metadata:
+  name: loft-cluster
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+    demos.vcluster.com/eks-cluster-name: weblogic-demo
+    demos.vcluster.com/aws-region: us-west-2
+    demos.vcluster.com/cache-subnet-group: weblogic-demo-cache-subnets
+    demos.vcluster.com/cache-security-group: sg-REPLACE_ME
+    demos.vcluster.com/app-domain: apps.example.com
+    demos.vcluster.com/timezone: America/New_York
+spec:
+  displayName: Demo Control Plane Cluster
+  description: EKS cluster running vCluster Platform, the WebLogic operator, Envoy Gateway, and the ACK ElastiCache controller
+  local: true
+  managementNamespace: vcluster-platform

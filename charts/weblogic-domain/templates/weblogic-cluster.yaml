@@ -1,0 +1,12 @@
+apiVersion: weblogic.oracle/v1
+kind: Cluster
+metadata:
+  name: {{ include "weblogic-demo.clusterName" . }}
+  namespace: {{ include "weblogic-demo.namespace" . }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  labels:
+    app.kubernetes.io/part-of: weblogic-demo
+spec:
+  clusterName: {{ include "weblogic-demo.clusterName" . }}
+  replicas: {{ .Values.managedServerCount }}

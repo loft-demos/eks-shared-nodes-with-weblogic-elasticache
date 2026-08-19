@@ -1,0 +1,226 @@
+# Shared-node tenant cluster template for the EKS Control Plane Cluster.
+#
+# Same abstraction as the home-lab template, plus the two things EKS adds:
+#   * ACK ElastiCache CRD sync, so a tenant can ask for a Redis replication group
+#   * cluster-annotation-driven AWS configuration, so subnet group / security group /
+#     region / hostname come from the Cluster resource rather than being baked in here
+#
+# Register once:
+#   kubectl apply -f weblogic-shared-node-eks-template.yaml
+apiVersion: management.loft.sh/v1
+kind: VirtualClusterTemplate
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  name: weblogic-shared-node
+  labels:
+    app.kubernetes.io/part-of: vcluster-weblogic-demo
+    tenancy.loft.sh/model: shared-node
+spec:
+  displayName: WebLogic Shared-Node Tenant (EKS)
+  description: >-
+    Shared-node tenant cluster for WebLogic domains on EKS. WebLogic and Gateway API
+    resources are reconciled by shared Control Plane Cluster operators, ElastiCache is
+    provisioned through ACK, and each client receives an isolated Kubernetes API.
+  owner:
+    team: loft-admins
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: vcluster-weblogic-demo
+        tenancy.loft.sh/model: shared-node
+    instanceTemplate:
+      metadata:
+        labels:
+          app.kubernetes.io/part-of: vcluster-weblogic-demo
+    spaceTemplate:
+      metadata:
+        labels:
+          # Matches the WebLogic operator install flag:
+          #   --set "domainNamespaceLabelSelector=weblogic-operator=enabled"
+          # This is what makes the single host-side operator adopt each new tenant's
+          # backing namespace with no manual step.
+          weblogic-operator: enabled
+    pro:
+      enabled: true
+    helmRelease:
+      chart:
+        # Pin to the vCluster chart version approved for the POC.
+        version: 0.36.0
+      values: |-
+        sync:
+          toHost:
+            customResources:
+              # WebLogic. Match the versions the operator serves
+              # (Domain v9, Cluster v1 on operator 4.x).
+              domains.weblogic.oracle:
+                enabled: true
+                patches:
+                  # The operator reconciles the synced Domain on the Control Plane
+                  # Cluster, so every name reference inside the spec has to be rewritten
+                  # to the host-translated name of the synced object.
+                  - path: spec.clusters[*]
+                    reference:
+                      apiVersion: weblogic.oracle/v1
+                      kind: Cluster
+                      namePath: name
+                  - path: spec.webLogicCredentialsSecret
+                    reference:
+                      apiVersion: v1
+                      kind: Secret
+                      namePath: name
+                  - path: spec.configuration.model.runtimeEncryptionSecret
+                    reference:
+                      apiVersion: v1
+                      kind: Secret
+                  # The ElastiCache endpoint ConfigMap the WebLogic server pods mount.
+                  # Without this the Domain would reference a tenant name that does not
+                  # exist in the backing namespace and the server pods never start.
+                  - path: spec.serverPod.volumes[*].configMap
+                    reference:
+                      apiVersion: v1
+                      kind: ConfigMap
+                      namePath: name
+              clusters.weblogic.oracle:
+                enabled: true
+              # ACK ElastiCache. The CRD must already exist on the Control Plane Cluster
+              # before a tenant starts: vCluster registers custom-resource syncers during
+              # startup and fails if the CRD is missing.
+              replicationgroups.elasticache.services.k8s.aws:
+                enabled: true
+            secrets:
+              # The host-side operator reads the WebLogic credentials and runtime
+              # encryption secrets out of the backing namespace. Replace with
+              # ProjectSecret / ExternalSecret bootstrap for a real POC.
+              enabled: true
+              all: true
+            configMaps:
+              # all: true because the cache endpoint ConfigMap is mounted by pods the
+              # host operator creates, so vCluster's "only what is needed" detection
+              # never sees a tenant pod referencing it.
+              enabled: true
+              all: true
+            gatewayApi:
+              enabled: true
+              # Tenants define routes; the shared Gateway itself stays host-owned.
+              httpRoutes:
+                enabled: true
+              referenceGrants:
+                enabled: auto
+
+          fromHost:
+            # Import the shared Envoy Gateway so tenant HTTPRoutes can attach to it.
+            gatewayClasses:
+              enabled: true
+              selector:
+                matchLabels:
+                  vcluster.loft.sh/shared-gateway: "true"
+            gateways:
+              enabled: true
+              mappings:
+                byName:
+                  "envoy-gateway-system/shared-gw": "envoy-gateway-system/shared-gw"
+              allowedRoutes:
+                overrides:
+                  - hostNamespace: envoy-gateway-system
+                    name: shared-gw
+                    virtualNamespacePolicy:
+                      from: All
+
+        # Shared nodes, pre-production only. This is the cost story for the repeated
+        # Dev/QA, Lab, and UAT environments. Production tenants omit this block.
+        sleep:
+          auto:
+            afterInactivity: {{ .Values.sleepAfterInactivity }}
+            schedule: "0 20 * * 1-5"
+            wakeup:
+              schedule: "0 7 * * 1-5"
+            timezone: '{{ default "America/New_York" (index .Values.loft.clusterAnnotations "demos.vcluster.com/timezone") }}'
+
+        controlPlane:
+          distro:
+            k8s:
+              # Pinned to match the Control Plane Cluster's 1.36 nodes. vCluster's
+              # compatibility matrix flags a control plane on 1.34+ with tenants on 1.33 or
+              # earlier as a known issue where pods stick at Ready=False. The 0.36.0 chart
+              # already defaults to v1.36.0, so this is belt and braces against a chart
+              # bump silently changing the tenant version out from under the demo.
+              version: v1.36.2
+          backingStore:
+            etcd:
+              embedded:
+                enabled: true
+          coredns:
+            embedded: true
+
+        integrations:
+          argoCD:
+            enabled: true
+            connector: vcluster-argocd
+
+        deploy:
+          argoCD:
+            applications:
+              - name: weblogic-domain
+                displayName: WebLogic Domain, ElastiCache, and HTTPRoute
+                target: vCluster
+                template:
+                  name: vcluster-weblogic-domain-app
+                  parameters:
+                    namespace: wi
+                    domainUID: wi-domain
+                    managedServerCount: "{{ .Values.managedServerCount }}"
+                    appHost: '{{ .Values.loft.virtualClusterName }}.{{ index .Values.loft.clusterAnnotations "demos.vcluster.com/app-domain" }}'
+                    appContextPath: /demo
+                    cacheMode: "{{ .Values.cacheMode }}"
+                    cacheNodeType: "{{ .Values.cacheNodeType }}"
+                    cacheSubnetGroupName: '{{ index .Values.loft.clusterAnnotations "demos.vcluster.com/cache-subnet-group" }}'
+                    cacheSecurityGroupID: '{{ index .Values.loft.clusterAnnotations "demos.vcluster.com/cache-security-group" }}'
+  parameters:
+    - variable: cacheMode
+      label: Cache Backend
+      description: >-
+        elasticache provisions real AWS ElastiCache through an ACK ReplicationGroup, which
+        is the self-service story but takes five to ten minutes. in-tenant runs Redis as a
+        pod inside the tenant and is ready in seconds, which is the one to pick when
+        creating a tenant live in front of an audience. The application is identical
+        either way. Defaults to in-tenant: most tenants are short-lived and only need a
+        cache, not a managed AWS resource, so the common case should not leave billing
+        behind when a tenant is forgotten.
+      type: string
+      defaultValue: in-tenant
+      options:
+        - in-tenant
+        - elasticache
+        - none
+      section: Cache
+    - variable: cacheNodeType
+      label: ElastiCache Node Type
+      description: Only used when Cache Backend is elasticache.
+      type: string
+      defaultValue: cache.t4g.micro
+      options:
+        - cache.t4g.micro
+        - cache.t4g.small
+        - cache.t4g.medium
+      section: Cache
+    - variable: managedServerCount
+      label: WebLogic Managed Servers
+      type: number
+      defaultValue: 3
+      min: 1
+      max: 5
+      section: WebLogic
+    - variable: sleepAfterInactivity
+      label: Sleep After Inactivity
+      description: Idle period before the tenant workloads are scaled to zero.
+      type: string
+      defaultValue: 2h
+      section: Cost Controls
+  access:
+    - verbs:
+        - '*'
+      subresources:
+        - '*'
+      users:
+        - admin

@@ -1,0 +1,24 @@
+# Wildcard certificate for every tenant hostname.
+#
+# Lives in envoy-gateway-system because the Gateway's certificateRefs resolve in the
+# Gateway's own namespace; putting it anywhere else would need a ReferenceGrant.
+#
+# One cert covers all tenants, so adding a tenant needs no certificate work at all -
+# which is the same "template handles it" story as the rest of the demo.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: apps-wildcard
+  namespace: envoy-gateway-system
+spec:
+  secretName: apps-wildcard-tls
+  issuerRef:
+    # Browser-trusted. Switch back to letsencrypt-staging if you need to iterate on DNS01
+    # or the solver config, since production has tight rate limits (5 duplicate certs per
+    # week for the same name set).
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: "*.apps.example.com"
+  dnsNames:
+    - "*.apps.example.com"
+    - "apps.example.com"

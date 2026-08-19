@@ -1,0 +1,51 @@
+# Argo CD install values for this demo Control Plane Cluster.
+#
+#   helm install argocd argo-cd \
+#     --repo https://argoproj.github.io/argo-helm --version 10.4.0 \
+#     -n argocd --create-namespace \
+#     --values argocd/argocd-values.yaml
+#
+# The Platform account and its RBAC are declared here rather than patched into the
+# argocd-cm / argocd-rbac-cm ConfigMaps afterwards. Accounts added by patching are only
+# picked up when argocd-server restarts, which is an easy step to miss and produces a
+# confusing "account not found" when generating the token.
+# The chart derives configs.cm.url (and the ingress host, if ever enabled) from this.
+# Left unset it defaults to argocd.example.com, which then shows up as the base for every
+# absolute URL Argo CD generates.
+global:
+  domain: argocd.example.com
+
+configs:
+  cm:
+    # Creates a local account the Platform authenticates as. apiKey allows token
+    # generation but not UI login, which is what a machine account wants.
+    accounts.vcluster-platform: apiKey
+
+  params:
+    # Serve plain HTTP and let the shared Envoy Gateway terminate TLS with the wildcard
+    # certificate. Argo CD otherwise serves HTTPS and 301-redirects HTTP to HTTPS, so a
+    # plain-HTTP route into it produces a redirect loop.
+    #
+    # The tradeoff: the hop from Envoy to argocd-server inside the cluster is unencrypted.
+    # That is the documented pattern for Argo CD behind a TLS-terminating proxy; encrypting
+    # it would mean a BackendTLSPolicy and a cert Argo CD and Envoy both trust.
+    server.insecure: true
+
+  rbac:
+    # Deny by default; the Platform account gets exactly what the connector needs.
+    policy.default: ""
+    policy.csv: |
+      p, role:vcluster-platform, clusters, get, *, allow
+      p, role:vcluster-platform, clusters, create, *, allow
+      p, role:vcluster-platform, clusters, update, *, allow
+      p, role:vcluster-platform, clusters, delete, *, allow
+      p, role:vcluster-platform, applications, get, */*, allow
+      p, role:vcluster-platform, applications, create, */*, allow
+      p, role:vcluster-platform, applications, update, */*, allow
+      p, role:vcluster-platform, applications, delete, */*, allow
+      p, role:vcluster-platform, applications, sync, */*, allow
+      g, vcluster-platform, role:vcluster-platform
+
+# The connector reaches Argo CD over the in-cluster Service, so the server does not need
+# to be exposed. Terminating TLS at the Argo CD server anyway keeps that hop encrypted;
+# the connector sets insecure: "true" because the certificate is self-signed.

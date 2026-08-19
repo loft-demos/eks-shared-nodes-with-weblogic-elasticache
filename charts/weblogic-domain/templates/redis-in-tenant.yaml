@@ -1,0 +1,101 @@
+{{- if include "weblogic-demo.isInTenantCache" . }}
+{{/*
+Redis running inside the tenant cluster, as an alternative to ACK ElastiCache.
+
+Why this exists: an ElastiCache replication group takes five to ten minutes to provision,
+which is a long silence if you are creating a tenant live in front of an audience. This
+mode is ready in seconds and needs no AWS, so tenant creation can be demonstrated
+end to end without a wait. It also lets the whole demo run on the home-lab cluster.
+
+The WebLogic server pods reach it by ClusterIP, not by DNS name. Those pods are created on
+the Control Plane Cluster by the WebLogic operator, so they resolve names against host
+CoreDNS and a tenant Service name means nothing to them. vCluster recreates the tenant
+Service so its ClusterIP matches the synced host Service, which makes the IP valid from
+both sides. The endpoint publisher reads that ClusterIP and writes it into the same
+ConfigMap the ElastiCache path uses.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "weblogic-demo.cacheServiceName" . }}
+  namespace: {{ include "weblogic-demo.namespace" . }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+  labels:
+    app.kubernetes.io/name: {{ include "weblogic-demo.cacheServiceName" . }}
+    app.kubernetes.io/part-of: weblogic-demo
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "weblogic-demo.cacheServiceName" . }}
+  ports:
+    - name: redis
+      port: {{ .Values.elasticache.port }}
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "weblogic-demo.cacheServiceName" . }}
+  namespace: {{ include "weblogic-demo.namespace" . }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+  labels:
+    app.kubernetes.io/name: {{ include "weblogic-demo.cacheServiceName" . }}
+    app.kubernetes.io/part-of: weblogic-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "weblogic-demo.cacheServiceName" . }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "weblogic-demo.cacheServiceName" . }}
+        app.kubernetes.io/part-of: weblogic-demo
+    spec:
+      containers:
+        - name: redis
+          image: {{ .Values.inTenantCache.image | quote }}
+          args:
+            - --maxmemory
+            - {{ .Values.inTenantCache.maxMemory | quote }}
+            - --maxmemory-policy
+            - allkeys-lru
+            # No persistence: a demo counter is not worth an RDB dump or a PVC.
+            - --save
+            - ""
+            - --appendonly
+            - "no"
+          ports:
+            - name: redis
+              containerPort: {{ .Values.elasticache.port }}
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: redis
+            initialDelaySeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 999
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
+{{- end }}

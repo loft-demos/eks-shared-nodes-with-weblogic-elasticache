@@ -1,0 +1,79 @@
+# Shared HTTP entry point on the Control Plane Cluster. Every tenant's HTTPRoute attaches
+# to this one Gateway; tenants do not each carry an ingress stack.
+#
+# The AWS load balancer annotations go on an EnvoyProxy resource rather than on the
+# Gateway's spec.infrastructure.annotations. Envoy Gateway's documented mechanism for
+# customizing the generated Service is provider.kubernetes.envoyService.annotations,
+# referenced from the GatewayClass via parametersRef. Gateway spec.infrastructure is
+# Gateway API surface that Envoy Gateway does not document as a supported path for this,
+# and a live demo is the wrong place to rely on undocumented behaviour.
+#
+# Requires the AWS Load Balancer Controller (the eksctl config creates its Pod Identity
+# association); aws-load-balancer-type: external is what hands the Service to that
+# controller instead of the legacy in-tree cloud provider, which would build a Classic LB.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: shared-gw-proxy
+  namespace: envoy-gateway-system
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        annotations:
+          service.beta.kubernetes.io/aws-load-balancer-type: external
+          # ip, not instance. Argo CD reaches tenant clusters through the Platform
+          # proxy at the public hostname, which hairpins from inside this cluster back
+          # through this load balancer. Instance-target NLBs blackhole that traffic.
+          service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+          service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: eg
+  labels:
+    # The tenant template imports GatewayClasses matching this label.
+    vcluster.loft.sh/shared-gateway: "true"
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: shared-gw-proxy
+    # EnvoyProxy is namespaced, so parametersRef must name the namespace.
+    namespace: envoy-gateway-system
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: shared-gw
+  namespace: envoy-gateway-system
+spec:
+  gatewayClassName: eg
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All
+    # Terminates TLS with the cert-manager wildcard cert. The Secret has to live in this
+    # namespace: certificateRefs resolve in the Gateway's own namespace, and pointing
+    # elsewhere would need a ReferenceGrant.
+    #
+    # Tenant HTTPRoutes carry hostnames like wi-clienta-uat.apps.example.com, so
+    # they match this listener's wildcard and attach to it without naming a sectionName.
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.apps.example.com"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: apps-wildcard-tls
+      allowedRoutes:
+        namespaces:
+          from: All

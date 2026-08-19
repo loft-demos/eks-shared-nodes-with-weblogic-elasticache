@@ -1,0 +1,25 @@
+{{- if .Values.httpRoute.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ .Values.httpRoute.name }}
+  namespace: {{ include "weblogic-demo.namespace" . }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/part-of: weblogic-demo
+spec:
+  parentRefs:
+    - name: {{ .Values.httpRoute.parentRef.name }}
+      namespace: {{ .Values.httpRoute.parentRef.namespace }}
+  hostnames:
+    - {{ .Values.httpRoute.host | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ .Values.demoApp.contextPath | quote }}
+      backendRefs:
+        - name: {{ include "weblogic-demo.clusterServiceName" . }}
+          port: {{ .Values.cluster.servicePort }}
+{{- end }}

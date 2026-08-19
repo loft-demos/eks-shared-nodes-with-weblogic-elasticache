@@ -1,0 +1,24 @@
+{{- if include "weblogic-demo.cacheEnabled" . }}
+{{/*
+Created ahead of the Domain (sync wave -2) because the WebLogic server pods mount it.
+A pod cannot start against a missing ConfigMap volume, and AWS takes several minutes to
+report an endpoint, so the chart seeds an empty one and the publisher fills it in later.
+Argo CD must not fight the publisher over the data, hence the ignore-differences note in
+the ArgoCDApplicationTemplate.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "weblogic-demo.cacheConfigMapName" . }}
+  namespace: {{ include "weblogic-demo.namespace" . }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  labels:
+    app.kubernetes.io/part-of: weblogic-demo
+data:
+  endpoint: ""
+  port: {{ .Values.elasticache.port | quote }}
+  # In-tenant Redis is plaintext; ElastiCache follows its own setting.
+  tls: {{ if include "weblogic-demo.isElastiCache" . }}{{ .Values.elasticache.transitEncryptionEnabled | quote }}{{ else }}"false"{{ end }}
+  state: "pending"
+{{- end }}

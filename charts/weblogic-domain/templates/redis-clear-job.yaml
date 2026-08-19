@@ -1,0 +1,77 @@
+{{- if .Values.redisClearJob.enabled }}
+{{/*
+Stands in for the cache-clear jobs the customer runs today. It is an ordinary tenant Job, so
+it proves that a plain Kubernetes workload in the tenant reaches the same ElastiCache
+replication group the WebLogic domain uses. It exits cleanly when the endpoint has not
+been published yet, so an Argo CD sync during provisioning does not go red.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "weblogic-demo.domainUID" . }}-cache-clear
+  namespace: {{ include "weblogic-demo.namespace" . }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/name: {{ include "weblogic-demo.domainUID" . }}-cache-clear
+    app.kubernetes.io/part-of: weblogic-demo
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "weblogic-demo.domainUID" . }}-cache-clear
+        app.kubernetes.io/part-of: weblogic-demo
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: clear
+          image: {{ .Values.redisClearJob.image | quote }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              {{- if include "weblogic-demo.cacheEnabled" . }}
+              CONFIG_DIR={{ .Values.cacheMountPath | quote }}
+              ENDPOINT="$(cat "$CONFIG_DIR/endpoint" 2>/dev/null || true)"
+              if [ -z "$ENDPOINT" ]; then
+                echo "ElastiCache endpoint not published yet; nothing to clear."
+                exit 0
+              fi
+              PORT="$(cat "$CONFIG_DIR/port" 2>/dev/null || echo 6379)"
+              TLS="$(cat "$CONFIG_DIR/tls" 2>/dev/null || echo false)"
+              TLS_ARGS=""
+              if [ "$TLS" = "true" ]; then
+                TLS_ARGS="--tls"
+              fi
+              echo "Clearing demo keys on $ENDPOINT:$PORT (tls=$TLS)"
+              # shellcheck disable=SC2086
+              redis-cli -h "$ENDPOINT" -p "$PORT" $TLS_ARGS \
+                DEL "demo:{{ include "weblogic-demo.domainUID" . }}:hits" \
+                    "demo:{{ include "weblogic-demo.domainUID" . }}:history"
+              echo "Cache clear job completed"
+              {{- else }}
+              echo "No cache configured for this tenant; clear job is a no-op."
+              {{- end }}
+          {{- if include "weblogic-demo.cacheEnabled" . }}
+          volumeMounts:
+            - name: cache-config
+              mountPath: {{ .Values.cacheMountPath | quote }}
+              readOnly: true
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 999
+            capabilities:
+              drop: ["ALL"]
+      {{- if include "weblogic-demo.cacheEnabled" . }}
+      volumes:
+        - name: cache-config
+          configMap:
+            name: {{ include "weblogic-demo.cacheConfigMapName" . }}
+      {{- end }}
+{{- end }}

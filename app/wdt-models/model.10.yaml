@@ -1,0 +1,30 @@
+domainInfo:
+  AdminUserName: '@@SECRET:__weblogic-credentials__:username@@'
+  AdminPassword: '@@SECRET:__weblogic-credentials__:password@@'
+  ServerStartMode: prod
+
+topology:
+  Name: '@@ENV:DOMAIN_UID@@'
+  AdminServerName: admin-server
+  Cluster:
+    cluster-1:
+      DynamicServers:
+        ServerTemplate: cluster-1-template
+        ServerNamePrefix: managed-server
+        DynamicClusterSize: 3
+        MaxDynamicClusterSize: 3
+        CalculatedListenPorts: false
+  Server:
+    admin-server:
+      ListenPort: 7001
+  ServerTemplate:
+    cluster-1-template:
+      Cluster: cluster-1
+      ListenPort: 8001
+
+appDeployments:
+  Application:
+    demo-webapp:
+      SourcePath: wlsdeploy/applications/demo-webapp.war
+      Target: cluster-1
+      ModuleType: war

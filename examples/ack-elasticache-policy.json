@@ -1,0 +1,43 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReplicationGroupLifecycle",
+      "Effect": "Allow",
+      "Action": [
+        "elasticache:CreateReplicationGroup",
+        "elasticache:DeleteReplicationGroup",
+        "elasticache:ModifyReplicationGroup",
+        "elasticache:DescribeReplicationGroups",
+        "elasticache:DescribeCacheClusters",
+        "elasticache:DescribeCacheSubnetGroups",
+        "elasticache:DescribeEvents",
+        "elasticache:AddTagsToResource",
+        "elasticache:RemoveTagsFromResource",
+        "elasticache:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "VpcLookups",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeSubnets",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeVpcs"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ServiceLinkedRole",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/elasticache.amazonaws.com/AWSServiceRoleForElastiCache",
+      "Condition": {
+        "StringLike": {
+          "iam:AWSServiceName": "elasticache.amazonaws.com"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+# Let's Encrypt issuers using the Route 53 DNS01 solver.
+#
+# DNS01 rather than HTTP01 because the demo needs a *wildcard* certificate covering every
+# tenant hostname (wi-clienta-uat, wi-clientb-uat, ...), and HTTP01 cannot issue wildcards.
+#
+# No accessKeyID or secretAccessKeySecretRef: cert-manager runs with an EKS Pod Identity
+# association (created by eks-cluster.yaml) and picks the credentials up as ambient
+# environment credentials. hostedZoneID is set so the IAM role does not need
+# route53:ListHostedZonesByName.
+#
+# Start with staging to avoid burning Let's Encrypt rate limits while you iterate, then
+# switch the Certificate's issuerRef to letsencrypt-prod for a browser-trusted cert.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: platform-team@example.com
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - dns01:
+          route53:
+            region: us-west-2
+            hostedZoneID: Z0123456789ABCDEFGHIJ
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: platform-team@example.com
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - dns01:
+          route53:
+            region: us-west-2
+            hostedZoneID: Z0123456789ABCDEFGHIJ

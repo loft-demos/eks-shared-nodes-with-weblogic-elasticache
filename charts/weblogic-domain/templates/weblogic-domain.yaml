@@ -1,0 +1,55 @@
+apiVersion: weblogic.oracle/v9
+kind: Domain
+metadata:
+  name: {{ include "weblogic-demo.domainUID" . }}
+  namespace: {{ include "weblogic-demo.namespace" . }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    app.kubernetes.io/part-of: weblogic-demo
+spec:
+  domainUID: {{ include "weblogic-demo.domainUID" . }}
+  domainHomeSourceType: FromModel
+  image: {{ .Values.domain.image | quote }}
+  imagePullPolicy: {{ .Values.domain.imagePullPolicy | default "IfNotPresent" }}
+  {{- with .Values.domain.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  webLogicCredentialsSecret:
+    name: {{ .Values.credentialsSecretName }}
+  includeServerOutInPodLog: true
+  serverStartPolicy: IfNeeded
+  configuration:
+    model:
+      domainType: WLS
+      runtimeEncryptionSecret: {{ .Values.runtimeEncryptionSecretName }}
+      {{- with .Values.domain.auxiliaryImages }}
+      auxiliaryImages:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  serverPod:
+    env:
+      - name: JAVA_OPTIONS
+        value: {{ .Values.domain.javaOptions | quote }}
+      {{- if include "weblogic-demo.cacheEnabled" . }}
+      - name: CACHE_CONFIG_DIR
+        value: {{ .Values.cacheMountPath | quote }}
+      {{- end }}
+    {{- if include "weblogic-demo.cacheEnabled" . }}
+    {{/*
+      Mounted as a whole directory, never with subPath, so kubelet refreshes the files in
+      place when the publisher fills in the endpoint. That is what lets a running domain
+      pick up a newly provisioned cache without a rolling restart.
+    */}}
+    volumes:
+      - name: cache-config
+        configMap:
+          name: {{ include "weblogic-demo.cacheConfigMapName" . }}
+    volumeMounts:
+      - name: cache-config
+        mountPath: {{ .Values.cacheMountPath | quote }}
+        readOnly: true
+    {{- end }}
+  clusters:
+    - name: {{ include "weblogic-demo.clusterName" . }}

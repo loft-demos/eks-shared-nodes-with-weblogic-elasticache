@@ -1,0 +1,20 @@
+apiVersion: management.loft.sh/v1
+kind: VirtualClusterInstance
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  name: wi-clienta-lab
+  namespace: p-weblogic-tenants
+  labels:
+    vcluster.loft.sh/client: clienta
+    vcluster.loft.sh/environment: lab
+spec:
+  clusterRef:
+    cluster: loft-cluster
+  templateRef:
+    name: weblogic-shared-node
+  parameters: |-
+    cacheMode: in-tenant
+    cacheNodeType: cache.t4g.micro
+    managedServerCount: 3
+    sleepAfterInactivity: 45m

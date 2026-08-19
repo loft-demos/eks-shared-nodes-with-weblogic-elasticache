@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Pins the context root to /demo so the tenant HTTPRoute path prefix matches.
+  Without this, WebLogic derives the context root from the WAR file name
+  (/demo-webapp) and the shared Envoy Gateway route 404s.
+  If you change the chart's demoApp.contextPath, change this to match.
+-->
+<weblogic-web-app xmlns="http://xmlns.oracle.com/weblogic/weblogic-web-app"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  xsi:schemaLocation="http://xmlns.oracle.com/weblogic/weblogic-web-app
+                                      http://xmlns.oracle.com/weblogic/weblogic-web-app/1.9/weblogic-web-app.xsd">
+  <context-root>/demo</context-root>
+</weblogic-web-app>

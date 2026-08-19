@@ -1,0 +1,50 @@
+{{- if include "weblogic-demo.isElastiCache" . }}
+{{/*
+Created in the tenant namespace. vCluster syncs it up to the tenant's backing namespace
+on the Control Plane Cluster, where the ACK ElastiCache controller reconciles it against
+AWS using its EKS Pod Identity credentials. The tenant never holds an AWS credential.
+
+numNodeGroups: 1 with replicasPerNodeGroup is ACK's cluster-mode-disabled shape, which is
+what puts a usable address at status.nodeGroups[0].primaryEndpoint.
+*/}}
+apiVersion: elasticache.services.k8s.aws/v1alpha1
+kind: ReplicationGroup
+metadata:
+  name: {{ include "weblogic-demo.replicationGroupID" . }}
+  namespace: {{ include "weblogic-demo.namespace" . }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+  labels:
+    app.kubernetes.io/part-of: weblogic-demo
+spec:
+  replicationGroupID: {{ include "weblogic-demo.replicationGroupID" . | quote }}
+  description: {{ .Values.elasticache.description | quote }}
+  engine: {{ .Values.elasticache.engine | quote }}
+  engineVersion: {{ .Values.elasticache.engineVersion | quote }}
+  cacheNodeType: {{ .Values.elasticache.cacheNodeType | quote }}
+  numNodeGroups: {{ .Values.elasticache.numNodeGroups }}
+  replicasPerNodeGroup: {{ .Values.elasticache.replicasPerNodeGroup }}
+  {{- if gt (int .Values.elasticache.replicasPerNodeGroup) 0 }}
+  automaticFailoverEnabled: {{ .Values.elasticache.automaticFailoverEnabled }}
+  multiAZEnabled: {{ .Values.elasticache.multiAZEnabled }}
+  {{- end }}
+  port: {{ .Values.elasticache.port }}
+  atRestEncryptionEnabled: {{ .Values.elasticache.atRestEncryptionEnabled }}
+  transitEncryptionEnabled: {{ .Values.elasticache.transitEncryptionEnabled }}
+  {{- if .Values.elasticache.cacheSubnetGroupName }}
+  cacheSubnetGroupName: {{ .Values.elasticache.cacheSubnetGroupName | quote }}
+  {{- end }}
+  {{- with .Values.elasticache.securityGroupIDs }}
+  securityGroupIDs:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  tags:
+    - key: app
+      value: weblogic-demo
+    - key: tenant-domain
+      value: {{ include "weblogic-demo.domainUID" . | quote }}
+    {{- range $key, $value := .Values.elasticache.extraTags }}
+    - key: {{ $key | quote }}
+      value: {{ $value | quote }}
+    {{- end }}
+{{- end }}

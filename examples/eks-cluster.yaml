@@ -1,0 +1,167 @@
+# Control Plane Cluster for the the customer WebLogic + ACK ElastiCache demo.
+#
+#   eksctl create cluster -f eks-cluster.yaml
+#
+# Differences from the home-lab (VIND/kind) path: EKS Pod Identity for the ACK
+# ElastiCache controller and the AWS Load Balancer Controller, an NLB in front of Envoy
+# Gateway, and enough node disk that the WebLogic introspector job is not evicted for
+# ephemeral-storage pressure while it unpacks a multi-gigabyte WebLogic image.
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+# Kubernetes 1.36 is the EKS default and is supported through 2027-08-01. Do not drop to
+# 1.33: it left standard support on 2026-07-28, which means extended-support pricing
+# ($0.60/hr for the control plane instead of $0.10/hr) and a bad look in front of a
+# prospect. Keep the tenant clusters on 1.36 too - vCluster's compatibility matrix flags
+# a control plane on 1.34+ with tenants on 1.33 or earlier as a known issue where pods
+# stick at Ready=False.
+metadata:
+  name: weblogic-demo
+  region: us-west-2
+  version: "1.36"
+  tags:
+    demo: weblogic-elasticache
+    owner: platform-team
+
+iam:
+  withOIDC: true
+  # These create IAM roles and EKS Pod Identity associations only. They do NOT install
+  # any controller, namespace, or service account. A Pod Identity association is an
+  # EKS-side record that names a namespace and service account as strings; neither has to
+  # exist yet, and the credentials are injected when a pod using that service account is
+  # eventually admitted. The controllers themselves are installed with Helm afterwards,
+  # in README.md steps 2 and 3.
+  podIdentityAssociations:
+    # ACK ElastiCache controller, installed later into ack-system on this cluster.
+    # It is the only component in the demo that holds AWS credentials: tenants ask for a
+    # ReplicationGroup through the Kubernetes API and this controller talks to AWS.
+    # createServiceAccount stays false because the ACK Helm chart creates the service
+    # account itself (serviceAccount.create defaults to true, named as below). Letting
+    # both create it makes the later helm install fail on ownership metadata.
+    - namespace: ack-system
+      serviceAccountName: ack-elasticache-controller
+      createServiceAccount: false
+      roleName: weblogic-demo-ack-elasticache
+      permissionPolicyARNs:
+        # ACK's own recommended policy. Swap for iam/ack-elasticache-policy.json if the
+        # account requires least privilege.
+        - arn:aws:iam::aws:policy/AmazonElastiCacheFullAccess
+    # Fronts Envoy Gateway with a network load balancer. Same deal: the chart creates
+    # the service account, this just pre-binds the IAM role to that name.
+    - namespace: kube-system
+      serviceAccountName: aws-load-balancer-controller
+      createServiceAccount: false
+      roleName: weblogic-demo-aws-lb-controller
+      wellKnownPolicies:
+        awsLoadBalancerController: true
+    # cert-manager, for the wildcard TLS cert on *.apps.example.com.
+    # DNS01 is required because HTTP01 cannot issue wildcards. cert-manager picks the
+    # credentials up as ambient environment credentials, so the ClusterIssuer's route53
+    # block needs no accessKeyID or secret.
+    - namespace: cert-manager
+      serviceAccountName: cert-manager
+      createServiceAccount: false
+      roleName: weblogic-demo-cert-manager
+      wellKnownPolicies:
+        certManager: true
+    # Uncomment to let external-dns publish the tenant hostnames into Route 53.
+    # - namespace: external-dns
+    #   serviceAccountName: external-dns
+    #   createServiceAccount: false
+    #   roleName: weblogic-demo-external-dns
+    #   wellKnownPolicies:
+    #     externalDNS: true
+
+vpc:
+  clusterEndpoints:
+    publicAccess: true
+    privateAccess: true
+  # (optional, safer) restrict public access:
+  # publicAccessCIDRs: ["x.x.x.x/32"]
+
+cloudWatch:
+  clusterLogging:
+    enableTypes: ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+
+managedNodeGroups:
+  # Intentionally untainted. Tainting the system pool means adding tolerations to
+  # vCluster Platform, Argo CD, the WebLogic operator, Envoy Gateway, and the ACK
+  # controller, which is noise for a demo. Add the taint back for a real POC.
+  - name: mng-system
+    amiFamily: AmazonLinux2023
+    instanceTypes: [m6a.large]
+    minSize: 2
+    desiredCapacity: 2
+    maxSize: 4
+    volumeSize: 80
+    availabilityZones: [us-west-2a, us-west-2b, us-west-2c]
+    privateNetworking: true
+    labels: { node-role: system }
+    iam:
+      attachPolicyARNs:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  # Shared nodes. Every tenant cluster's WebLogic servers land here, which is the whole
+  # point of the shared-node tenancy model. 100 GiB because a WebLogic OCR image plus the
+  # auxiliary image plus the domain home is not small.
+  - name: mng-workload
+    amiFamily: AmazonLinux2023
+    instanceTypes: [m6a.xlarge]
+    minSize: 2
+    desiredCapacity: 3
+    maxSize: 8
+    volumeSize: 100
+    availabilityZones: [us-west-2a, us-west-2b, us-west-2c]
+    privateNetworking: true
+    labels: { node-role: workload }
+    iam:
+      attachPolicyARNs:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+# Without these, only the principal that ran `eksctl create cluster` can talk to the
+# Kubernetes API. AWS account admin does not carry over: an SSO admin opening the EKS
+# console sees "Unauthorized" on every Resources panel while the AWS-level views render
+# fine, which reads like a console bug rather than a permissions gap.
+#
+# Both AWSAdministratorAccess permission sets in this account are listed so it does not
+# matter which one you assume. Note the full ARN including the /aws-reserved/... path:
+# EKS rejects the path-stripped form for SSO roles as an invalid principal, despite what
+# the access-entry docs imply. The eu-central-1 in the path is where Identity Center is
+# homed and is unrelated to the cluster's region.
+accessConfig:
+  authenticationMode: API_AND_CONFIG_MAP
+  accessEntries:
+    - principalARN: arn:aws:iam::111122223333:role/aws-reserved/sso.amazonaws.com/REGION/AWSReservedSSO_AdministratorAccess_EXAMPLE1
+      accessPolicies:
+        - policyARN: arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          accessScope:
+            type: cluster
+    - principalARN: arn:aws:iam::111122223333:role/aws-reserved/sso.amazonaws.com/REGION/AWSReservedSSO_AdministratorAccess_EXAMPLE2
+      accessPolicies:
+        - policyARN: arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          accessScope:
+            type: cluster
+
+addonsConfig:
+  # Lets eksctl wire Pod Identity for add-ons that support it (EBS CSI, VPC CNI).
+  autoApplyPodIdentityAssociations: true
+
+addons:
+  # Re-check pins before a POC:
+  #   aws eks describe-addon-versions --addon-name <name> --kubernetes-version 1.36
+  - name: vpc-cni
+    version: v1.23.0-eksbuild.1
+  - name: kube-proxy
+    version: v1.36.0-eksbuild.14
+  - name: coredns
+    version: v1.14.3-eksbuild.9
+  - name: metrics-server
+    version: v0.9.0-eksbuild.5
+  - name: eks-pod-identity-agent
+    version: v1.4.0-eksbuild.1
+  - name: aws-ebs-csi-driver
+    version: v1.63.1-eksbuild.1

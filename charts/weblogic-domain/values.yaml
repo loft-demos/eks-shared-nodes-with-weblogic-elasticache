@@ -1,0 +1,110 @@
+namespace: wi
+domainUID: wi-domain
+managedServerCount: 3
+
+credentialsSecretName: wi-domain-credentials
+runtimeEncryptionSecretName: wi-domain-runtime-encryption-secret
+
+demoCredentials:
+  create: true
+  username: weblogic
+  password: welcome1
+
+demoRuntimeEncryption:
+  create: true
+  password: welcome1-runtime-encryption
+
+domain:
+  # Replace this with a WebLogic+Java base image from Oracle Container Registry
+  # or an internally built/patched WebLogic image. The demo WAR and WDT model
+  # should live in a small auxiliary image listed below.
+  image: REPLACE_WITH_WEBLOGIC_DOMAIN_IMAGE
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+  # - name: ocr-pull-secret
+  javaOptions: "-Dweblogic.StdoutDebugEnabled=false"
+  auxiliaryImages: []
+  # - image: ghcr.io/YOUR_ORG/vcluster-weblogic-demo-aux:0.1.0
+  #   imagePullPolicy: IfNotPresent
+
+cluster:
+  name: cluster-1
+  servicePort: 8001
+
+demoApp:
+  enabled: true
+  # Must match <context-root> in demo-webapp/src/main/webapp/WEB-INF/weblogic.xml.
+  contextPath: /demo
+
+httpRoute:
+  enabled: true
+  name: wi-app
+  host: wi-clienta-uat.apps.example.com
+  parentRef:
+    name: shared-gw
+    namespace: envoy-gateway-system
+
+ancillaryServices:
+  # Optional mixed-workload demo only. Leave disabled when the WebLogic WAR is
+  # the app being routed and observed.
+  enabled: false
+  image: public.ecr.aws/nginx/nginx-unprivileged:1.27-alpine
+
+redisClearJob:
+  # Real cache-clear job when elasticache.enabled is true, no-op otherwise.
+  enabled: true
+  image: public.ecr.aws/docker/library/redis:7-alpine
+
+# Where the ElastiCache endpoint ConfigMap is mounted into WebLogic server pods and
+# the cache-clear job. The demo servlet reads it from here on every request.
+cacheMountPath: /u01/cache-config
+
+cachePublisher:
+  # Copies the ACK ReplicationGroup status endpoint into the ConfigMap above.
+  # Only rendered when elasticache.enabled is also true.
+  enabled: true
+  image: public.ecr.aws/docker/library/python:3.12-alpine
+  intervalSeconds: 15
+
+cache:
+  # How this tenant gets its Redis:
+  #
+  #   elasticache  Real AWS ElastiCache via an ACK ReplicationGroup. The self-service
+  #                story, but AWS takes 5-10 minutes to provision one.
+  #   in-tenant    A Redis pod inside the tenant cluster. Ready in seconds, works on any
+  #                Control Plane Cluster including the home lab, and needs no AWS at all.
+  #   none         No cache. The demo app reports "cache is still provisioning".
+  #
+  # The application is identical either way: both modes publish into the same endpoint
+  # ConfigMap, so the servlet neither knows nor cares which one it is talking to.
+  mode: elasticache
+
+inTenantCache:
+  image: public.ecr.aws/docker/library/redis:7-alpine
+  # No persistence and no TLS. This is a demo cache, and keeping it plaintext means the
+  # servlet takes the same code path it does against ElastiCache with encryption off.
+  maxMemory: 128mb
+
+elasticache:
+  # EKS only. Requires the ACK ElastiCache controller and the
+  # replicationgroups.elasticache.services.k8s.aws CRD on the Control Plane Cluster
+  # before the tenant cluster starts. Only used when cache.mode is "elasticache".
+  replicationGroupID: ""      # defaults to <domainUID>-cache
+  description: Demo Redis OSS replication group
+  engine: redis
+  engineVersion: "7.1"
+  cacheNodeType: cache.t4g.micro
+  # numNodeGroups: 1 plus replicasPerNodeGroup is ACK's cluster-mode-disabled shape.
+  numNodeGroups: 1
+  replicasPerNodeGroup: 0
+  automaticFailoverEnabled: true
+  multiAZEnabled: true
+  port: 6379
+  atRestEncryptionEnabled: true
+  # TLS to ElastiCache uses a publicly trusted Amazon CA, so the JDK truststore validates
+  # it with no extra configuration. Set to false only if TLS is getting in the way of a
+  # live run; the demo servlet and the cache-clear job both follow this value.
+  transitEncryptionEnabled: true
+  cacheSubnetGroupName: ""
+  securityGroupIDs: []
+  extraTags: {}

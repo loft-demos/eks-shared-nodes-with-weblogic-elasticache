@@ -1,0 +1,48 @@
+# The Project that owns the tenant clusters. Creating it also creates the p-<name>
+# namespace the VirtualClusterInstances live in, which is why this is sync wave -1 and the
+# tenants are wave 1.
+kind: Project
+apiVersion: management.loft.sh/v1
+metadata:
+  name: weblogic-tenants
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  displayName: WebLogic Tenants
+  description: Shared-node tenant clusters running WebLogic domains
+  owner:
+    user: admin
+  quotas: {}
+  allowedClusters:
+    # Must match the name of the Platform Cluster object, which for a Platform installed
+    # on the cluster it manages is loft-cluster. This is the Platform's name for the
+    # cluster, not the EKS cluster name.
+    - name: loft-cluster
+  allowedTemplates:
+    # storage.loft.sh, not management.loft.sh. The templates are served under
+    # management.loft.sh but stored under storage.loft.sh, and this field takes the
+    # storage group. Getting it wrong silently fails to allow the template.
+    - kind: VirtualClusterTemplate
+      group: storage.loft.sh
+      name: weblogic-shared-node
+      isDefault: true
+  allowedNodeTypes: null
+  allowedNodeProfiles: null
+  requireTemplate: {}
+  requirePreset: {}
+  access:
+    - name: loft-admin-access
+      verbs:
+        - get
+        - update
+        - patch
+        - delete
+      subresources:
+        - '*'
+      users:
+        - admin
+  namespacePattern:
+    # Overrides the default loft-<project>-v-<name>. Every reference to a tenant's backing
+    # namespace in these docs and in scripts/verify.sh follows this pattern; change both
+    # together if you change it here.
+    virtualCluster: p-{{.Values.loft.project}}-v-{{.Values.loft.name}}

@@ -1,0 +1,83 @@
+# vCluster Platform install values for this demo Control Plane Cluster.
+#
+#   helm upgrade vcluster-platform vcluster-platform --install \
+#     --repo https://charts.loft.sh/ \
+#     --namespace vcluster-platform --create-namespace \
+#     --version 4.11.2 \
+#     --values platform/vcluster-platform-values.yaml \
+#     --set env.LICENSE_TOKEN="$TOKEN" \
+#     --set admin.password="$ADMIN_PASSWORD"
+#
+# Only `config.audit` is a real chart value; everything else under `config` is passed
+# through verbatim to the Platform's own config object, so `helm template` will not catch
+# a typo in these keys. Check them against the platform config reference.
+
+env:
+  # Applying the license at startup avoids any click-through activation. Enterprise Scale
+  # with vNode covers the Pro features this demo needs (custom resource sync, Sleep Mode).
+  #
+  # Injected with --set rather than written here: the README tells you to push this repo
+  # to a Git remote Argo CD can read, and a license token does not belong in that repo.
+  # For GitOps, use the envValueFrom block at the bottom instead.
+  #
+  # LICENSE_TOKEN: <--set at install time>
+
+  # Belt and braces alongside config.loftHost. The chart disables the Loft Router when
+  # loftHost and devPodSubDomain are both set, or when this is true. Setting it explicitly
+  # avoids inventing a DevPod subdomain that is never used.
+  DISABLE_LOFT_ROUTER: "true"
+
+# Traffic reaches the Platform through the Gateway API instead: platform/vcp-httproute.yaml
+# attaches an HTTPRoute to the same shared Envoy Gateway and the same wildcard certificate
+# the tenant apps use. Enabling this too would create a second, conflicting path.
+ingress:
+  enabled: false
+
+config:
+  # The Platform generates URLs from loftHost: tenant kubeconfig endpoints, OIDC redirect
+  # URIs, invitation links. Unset, it provisions a hosted *.loft.host domain through the
+  # Loft Router and hands those out instead of this hostname.
+  loftHost: platform.example.com
+
+  audit:
+    enabled: true
+
+  # Off for this demo. Cost control adds a dashboard the WebLogic/ACK story does not use,
+  # and it invites questions that pull the room away from the point of the demo.
+  costControl:
+    enabled: false
+
+  # Off for this demo. Nothing here builds images in-cluster; the WebLogic auxiliary image
+  # is built and pushed out of band.
+  imageBuilder:
+    enabled: false
+
+  uiSettings:
+    externalURLs:
+      allow:
+        - vcluster
+        - featurebase
+    # A customer logo can be inlined here as a data: URI rather than an https:// URL.
+    # Many corporate sites enforce hotlink protection, returning 200 to a bare request but
+    # 403 once a browser sends a Referer from another origin, which renders as a broken
+    # logo with no obvious cause. Inlining also keeps the UI intact with no egress:
+    #   --set-file config.uiSettings.logoURL=examples/logo-datauri.txt
+    # logoURL: data:image/png;base64,...
+
+admin:
+  username: admin
+  # password comes from --set admin.password="$ADMIN_PASSWORD".
+  # The chart default is the literal string "my-password", which is not acceptable on a
+  # publicly resolvable hostname holding a real certificate.
+
+# GitOps alternative to --set: create the Secret out of band, then uncomment this and drop
+# the --set flag.
+#
+#   kubectl -n vcluster-platform create secret generic vcluster-platform-license \
+#     --from-literal=token="$TOKEN"
+#
+# envValueFrom:
+#   LICENSE_TOKEN:
+#     secretKeyRef:
+#       name: vcluster-platform-license
+#       key: token
