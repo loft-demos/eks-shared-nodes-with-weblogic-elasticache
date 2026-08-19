@@ -15,17 +15,24 @@ demoRuntimeEncryption:
   password: welcome1-runtime-encryption
 
 domain:
-  # Replace this with a WebLogic+Java base image from Oracle Container Registry
-  # or an internally built/patched WebLogic image. The demo WAR and WDT model
-  # should live in a small auxiliary image listed below.
-  image: REPLACE_WITH_WEBLOGIC_DOMAIN_IMAGE
+  # Oracle Container Registry GA image. Free for development, testing, prototyping and
+  # demonstration under Oracle's terms once you have accepted them with an Oracle SSO;
+  # use a CPU or patched image for anything production-like.
+  #
+  # 14.1.2.0 rather than 15.1.1.0 because the demo WAR imports javax.servlet.*; 15c is
+  # the Jakarta EE 9.1 line and would need the servlets migrated to jakarta.servlet.*.
+  image: container-registry.oracle.com/middleware/weblogic:14.1.2.0-generic-jdk17-ol8
   imagePullPolicy: IfNotPresent
-  imagePullSecrets: []
-  # - name: ocr-pull-secret
+  imagePullSecrets:
+    # Must exist in the tenant's backing namespace, where the operator creates the pods.
+    - name: ocr-pull-secret
   javaOptions: "-Dweblogic.StdoutDebugEnabled=false"
-  auxiliaryImages: []
-  # - image: ghcr.io/YOUR_ORG/vcluster-weblogic-demo-aux:0.1.0
-  #   imagePullPolicy: IfNotPresent
+  auxiliaryImages:
+    # Demo-owned: WDT model, WebLogic Deploy Tooling, and the demo WAR. Contains no
+    # WebLogic Server, which is why it can be published publicly. Built multi-arch
+    # (amd64 + arm64) by scripts/build-aux-image.sh.
+    - image: ghcr.io/loft-demos/vcluster-weblogic-demo-aux:0.2.0
+      imagePullPolicy: IfNotPresent
 
 cluster:
   name: cluster-1
