@@ -63,8 +63,7 @@ spec:
       # Without this, Argo CD self-heal keeps resetting it to the empty placeholder and
       # the app never sees a cache.
       ignoreDifferences:
-        - group: ""
-          kind: ConfigMap
+        - kind: ConfigMap
           name: "{{ .Values.domainUID }}-cache-endpoint"
           jsonPointers:
             - /data
