@@ -9,6 +9,12 @@ metadata:
     vcluster.loft.sh/client: clienta
     vcluster.loft.sh/environment: uat
 spec:
+  # Required when the tenant is created by GitOps or the API rather than through the UI.
+  # The Argo CD integration mints a scoped access key per tenant to register it with Argo
+  # CD, and that key takes its owner from here. Without it the tenant fails with
+  # "access key has no valid owner". The UI sets this implicitly to the logged-in user.
+  owner:
+    user: admin
   clusterRef:
     cluster: loft-cluster
   templateRef:

@@ -42,6 +42,9 @@ polls until the tenant reports `Ready`.
 
 Two details that cost time:
 
+- **`spec.owner` is required.** The UI fills it in from the logged-in user; the API does
+  not. Without it the tenant fails with "access key has no valid owner", because the Argo
+  CD integration mints a per-tenant access key that inherits the tenant's owner.
 - **`spec.parameters` is a YAML string, not an object.** It carries the template's
   parameter values as a block of YAML inside a JSON string field.
 - **The project namespace prefix comes from Platform Config.** `p-` is the default, giving

@@ -28,6 +28,26 @@ A plain recursive directory sync with sync waves, rather than several Applicatio
 | `0` | `VirtualClusterTemplate`, `ArgoCDApplicationTemplate` | Referenced by tenants |
 | `1` | `VirtualClusterInstance` | Needs both of the above |
 
+## Tenants need an explicit owner
+
+```yaml
+spec:
+  owner:
+    user: admin
+```
+
+The Argo CD integration mints a scoped access key per tenant to register it with Argo CD,
+and that key takes its owner from the tenant. Creating a tenant through the UI sets this
+implicitly to the logged-in user; creating one from Git or the API sets nothing, and the
+tenant fails to reconcile with:
+
+```text
+Failed reconciling Argo CD integration: access key has no valid owner,
+because spec.user, spec.team and spec.subject or spec.key is empty
+```
+
+A team works as well as a user, and is the better choice if the owning person may leave.
+
 ## Two things to know
 
 **These are aggregated API resources, not CRDs.** `management.loft.sh` is served by the

@@ -36,6 +36,10 @@ print(json.dumps({
     "spec": {
         "clusterRef": {"cluster": os.environ.get("CLUSTER", "loft-cluster")},
         "displayName": tenant,
+        # Required. The Argo CD integration mints a scoped access key per tenant and takes
+        # its owner from here; without it the tenant fails to reconcile with
+        # "access key has no valid owner". The UI sets this implicitly, the API does not.
+        "owner": {"user": os.environ.get("OWNER_USER", "admin")},
         "templateRef": {"name": template},
         # parameters is a YAML *string*, not an object.
         "parameters": "\n".join([
