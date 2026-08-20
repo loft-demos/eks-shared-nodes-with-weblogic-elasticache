@@ -21,4 +21,7 @@ data:
   # In-tenant Redis is plaintext; ElastiCache follows its own setting.
   tls: {{ if include "weblogic-demo.isElastiCache" . }}{{ .Values.elasticache.transitEncryptionEnabled | quote }}{{ else }}"false"{{ end }}
   state: "pending"
+  # Which backend this tenant got, so the app can describe itself accurately instead of
+  # always claiming ElastiCache.
+  backend: {{ .Values.cache.mode | quote }}
 {{- end }}

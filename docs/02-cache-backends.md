@@ -22,6 +22,7 @@ data:
   port: "6379"
   tls: "true"         # ElastiCache with encryption in transit; false for in-tenant
   state: "available"
+  backend: "in-tenant"   # or "elasticache"
 ```
 
 The WebLogic server pods mount it as a **directory** — never with `subPath`, which would
@@ -32,9 +33,17 @@ the slowest thing in this stack.
 The servlet re-reads the files on a short TTL and reports `state` when there is no
 endpoint yet, so the page moves from "provisioning" to a live counter on its own.
 
+`backend` exists so the page describes what the tenant actually got. Without it the app
+had to assume one backend, and an in-tenant tenant claimed to be running on ElastiCache.
+
 A small publisher Deployment in the tenant fills the ConfigMap in. The chart seeds it
 empty first, because a pod cannot start against a missing ConfigMap volume and AWS takes
 minutes to answer.
+
+It re-reads the live ConfigMap each cycle rather than trusting its own last write. Argo CD
+re-applies every manifest on a sync, `ignoreDifferences` suppresses only drift *detection*,
+so the seeded empty placeholder comes back periodically. Comparing against the API rather
+than against memory makes that self-correcting instead of permanent.
 
 ## ElastiCache through ACK
 

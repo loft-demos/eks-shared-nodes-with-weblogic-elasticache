@@ -70,12 +70,28 @@ public class CacheDemoServlet extends HttpServlet {
     }
   }
 
+  /**
+   * Injected by the tenant cluster template. TENANT_NAME is the vCluster Platform tenant
+   * cluster name; TENANT_HOST_NAMESPACE is the namespace on the Control Plane Cluster where
+   * the shared operator actually creates these pods - the developer only ever sees "wi".
+   * NODE_NAME comes from the downward API and shows which shared node served the request.
+   */
+  private static final String TENANT_NAME = envOr("TENANT_NAME");
+  private static final String HOST_NAMESPACE = envOr("TENANT_HOST_NAMESPACE");
+  private static final String NODE_NAME = envOr("NODE_NAME");
+
+  private static String envOr(String key) {
+    String value = System.getenv(key);
+    return value == null ? "" : value.trim();
+  }
+
   private void render(PrintWriter out, String domainUID, String serverName, CacheConfig cache,
       CacheResult result, String requestUri) {
     out.println("<!doctype html>");
     out.println("<html lang=\"en\"><head><meta charset=\"utf-8\"/>");
     out.println("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>");
-    out.println("<title>WebLogic on a Tenant Cluster</title>");
+    out.println("<title>" + (TENANT_NAME.isEmpty() ? "WebLogic on a Tenant Cluster"
+        : escape(TENANT_NAME) + " &middot; WebLogic") + "</title>");
     out.println("<style>");
     out.println(":root{--ink:#050B24;--accent:#FF6600;--muted:#828592;--line:#E6E7E9;--bg:#EDEFF3;}");
     out.println("body{font-family:Inter,system-ui,-apple-system,sans-serif;background:var(--bg);");
@@ -94,24 +110,39 @@ public class CacheDemoServlet extends HttpServlet {
     out.println("ol{margin:.5rem 0 0;padding-left:1.25rem;}");
     out.println("li{font-family:'Roboto Mono',ui-monospace,monospace;font-size:.85rem;}");
     out.println(".warn{border-left:4px solid var(--accent);}");
+    out.println(".chip{display:inline-block;vertical-align:middle;background:#FFE0CC;");
+    out.println("color:#CC5100;border-radius:999px;padding:.15rem .7rem;font-size:.8rem;");
+    out.println("font-weight:600;letter-spacing:.02em;margin-left:.5rem;}");
     out.println("a.btn{display:inline-block;background:var(--accent);color:#fff;text-decoration:none;");
     out.println("padding:.5rem 1rem;border-radius:8px;font-size:.9rem;}");
     out.println("a.btn:hover{background:#FF8433;}");
     out.println("</style></head><body><div class=\"wrap\">");
 
-    out.println("<h1>WebLogic on a shared-node tenant cluster</h1>");
+    out.println("<h1>WebLogic on a shared-node tenant cluster"
+        + (TENANT_NAME.isEmpty() ? "" : "<span class=\"chip\">" + escape(TENANT_NAME) + "</span>")
+        + "</h1>");
     out.println("<p class=\"sub\">One WebLogic operator on the Control Plane Cluster. "
-        + "One ElastiCache replication group requested from inside the tenant through ACK.</p>");
+        + escape(cacheBlurb(cache)) + "</p>");
 
     out.println("<div class=\"card\">");
     out.println("<dl>");
+    if (!TENANT_NAME.isEmpty()) {
+      row(out, "Tenant cluster", "<code>" + escape(TENANT_NAME) + "</code>");
+    }
     row(out, "Domain UID", escape(domainUID));
+    if (!HOST_NAMESPACE.isEmpty()) {
+      row(out, "Backing namespace", "<code>" + escape(HOST_NAMESPACE) + "</code>");
+    }
+    if (!NODE_NAME.isEmpty()) {
+      row(out, "Shared node", "<code>" + escape(NODE_NAME) + "</code>");
+    }
     row(out, "Serving instance", escape(serverName));
     row(out, "Cache endpoint", cache.isReady()
         ? "<code>" + escape(cache.endpoint()) + ":" + cache.port() + "</code>"
         : "<em>not published yet</em>");
     row(out, "In-transit encryption", cache.isReady() ? (cache.tls() ? "TLS" : "disabled") : "&mdash;");
-    row(out, "ReplicationGroup state", "<code>" + escape(cache.state()) + "</code>");
+    row(out, cache.isElastiCache() ? "ReplicationGroup state" : "Cache state",
+        "<code>" + escape(cache.state()) + "</code>");
     out.println("</dl></div>");
 
     if (result.status == CacheResult.Status.CONNECTED) {
@@ -128,9 +159,8 @@ public class CacheDemoServlet extends HttpServlet {
       out.println("</div>");
     } else if (result.status == CacheResult.Status.PENDING) {
       out.println("<div class=\"card warn\"><strong>Cache is still provisioning.</strong>");
-      out.println("<p class=\"sub\" style=\"margin:.5rem 0 0\">The tenant created an ACK "
-          + "<code>ReplicationGroup</code>. Once AWS reports an endpoint, the publisher writes it "
-          + "into the mounted ConfigMap and this page starts counting &mdash; no domain restart.</p></div>");
+      out.println("<p class=\"sub\" style=\"margin:.5rem 0 0\">" + pendingBlurb(cache)
+          + "</p></div>");
     } else {
       out.println("<div class=\"card warn\"><strong>Could not reach the cache.</strong>");
       out.println("<p class=\"sub\" style=\"margin:.5rem 0 0\">" + escape(result.error) + "</p>");
@@ -140,6 +170,28 @@ public class CacheDemoServlet extends HttpServlet {
     }
 
     out.println("</div></body></html>");
+  }
+
+  /** Describes the cache the way this tenant actually got it. */
+  private static String cacheBlurb(CacheConfig cache) {
+    if (cache.isElastiCache()) {
+      return "One ElastiCache replication group requested from inside the tenant through ACK.";
+    }
+    if ("in-tenant".equals(cache.backend())) {
+      return "Redis running inside the tenant cluster, reached by ClusterIP.";
+    }
+    return "Cache details are published into a ConfigMap the domain mounts.";
+  }
+
+  private static String pendingBlurb(CacheConfig cache) {
+    if (cache.isElastiCache()) {
+      return "The tenant created an ACK <code>ReplicationGroup</code>. Once AWS reports an "
+          + "endpoint, the publisher writes it into the mounted ConfigMap and this page starts "
+          + "counting &mdash; no domain restart.";
+    }
+    return "The publisher is waiting for the in-tenant Redis Service to report a ClusterIP. "
+        + "Once it does, it writes the address into the mounted ConfigMap and this page starts "
+        + "counting &mdash; no domain restart.";
   }
 
   private static void row(PrintWriter out, String label, String value) {

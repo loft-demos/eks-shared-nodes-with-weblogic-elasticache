@@ -32,6 +32,22 @@ spec:
     env:
       - name: JAVA_OPTIONS
         value: {{ .Values.domain.javaOptions | quote }}
+      {{- with .Values.tenant.name }}
+      - name: TENANT_NAME
+        value: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.tenant.hostNamespace }}
+      - name: TENANT_HOST_NAMESPACE
+        value: {{ . | quote }}
+      {{- end }}
+      {{/*
+        Downward API rather than a value: it names the shared node this particular server
+        landed on, which is the point of the shared-node model.
+      */}}
+      - name: NODE_NAME
+        valueFrom:
+          fieldRef:
+            fieldPath: spec.nodeName
       {{- if include "weblogic-demo.cacheEnabled" . }}
       - name: CACHE_CONFIG_DIR
         value: {{ .Values.cacheMountPath | quote }}

@@ -237,6 +237,8 @@ spec:
                     managedServerCount: "{{ .Values.managedServerCount }}"
                     appHost: '{{ .Values.loft.virtualClusterName }}.{{ index (.Values.loft.clusterAnnotations | default dict) "demos.vcluster.com/app-domain" }}'
                     appContextPath: /demo
+                    tenantName: '{{ .Values.loft.virtualClusterName }}'
+                    tenantHostNamespace: '{{ .Values.loft.virtualClusterNamespace }}'
                     cacheMode: "{{ .Values.cacheMode }}"
                     cacheNodeType: "{{ .Values.cacheNodeType }}"
                     cacheSubnetGroupName: '{{ index (.Values.loft.clusterAnnotations | default dict) "demos.vcluster.com/cache-subnet-group" }}'

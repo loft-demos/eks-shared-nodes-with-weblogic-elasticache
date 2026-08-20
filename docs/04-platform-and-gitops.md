@@ -100,6 +100,39 @@ than by CRDs, and it defaults fields on write, so Argo CD can report drift on fi
 never set. The bootstrap Application carries an `ignoreDifferences` block for the ones seen
 so far.
 
+## Never let Argo CD prune the Cluster object
+
+`spaceTemplate.objects` resolves `.Values.loft.clusterAnnotations` normally. But these are
+**init manifests**: if one renders to an invalid object, the whole VirtualClusterInstance
+reconcile aborts - no namespace, no pods, for every tenant on the template. It presents as
+a broken Platform rather than a bad manifest, so check
+`kubectl -n vcluster-platform logs deploy/loft | grep "init manifests"` early.
+
+The way to produce that state is to remove the `Cluster` manifest from a pruning Argo CD
+Application. Argo CD deletes the resource it was managing, the annotations go with it, and
+every template that reads them starts rendering empty strings - a hostname like
+`my-tenant.` instead of `my-tenant.apps.example.com`.
+
+Two consequences worth designing around:
+
+- Keep the `Cluster` object out of any pruning Application, and apply its annotations once
+  at bootstrap. `examples/cluster-annotations.yaml` is deliberately outside `gitops/`.
+- After changing a template, the Platform may hold the old one cached. Restarting
+  `deploy/loft` in `vcluster-platform` clears it.
+
+## Passing tenant identity into the workload
+
+Every tenant runs a byte-identical chart, so the app cannot tell which tenant it serves
+unless the template says so. The tenant template forwards
+`.Values.loft.virtualClusterName` and `.Values.loft.virtualClusterNamespace` as Argo CD
+application parameters, the chart turns them into `TENANT_NAME` and
+`TENANT_HOST_NAMESPACE` on the WebLogic `serverPod`, and the page and `/health` name the
+tenant. `NODE_NAME` comes from the downward API instead, which is what shows several
+tenants landing on the same shared node.
+
+Both are optional in the chart: rendered empty, the page just omits the rows. A missing
+label is better than a tenant that will not start.
+
 ## Argo CD application names are project-scoped
 
 `deploy.argoCD.applications[].name` must be unique across the whole project, not just the

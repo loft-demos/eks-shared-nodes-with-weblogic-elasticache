@@ -20,13 +20,18 @@ public class DemoServlet extends HttpServlet {
     response.setContentType("text/plain");
     response.setHeader("Cache-Control", "no-store");
     response.getWriter().printf("Example Corp WebLogic demo OK at %s%n", Instant.now());
+    // Named so a curl against several tenants is self-identifying.
+    String tenant = System.getenv("TENANT_NAME");
+    if (tenant != null && !tenant.trim().isEmpty()) {
+      response.getWriter().printf("tenant=%s%n", tenant.trim());
+    }
     response.getWriter().printf("cache=%s%n", cacheStatus());
   }
 
   private String cacheStatus() {
     CacheConfig cache = CacheConfig.current();
     if (!cache.isReady()) {
-      return "pending (ReplicationGroup state: " + cache.state() + ")";
+      return "pending (" + cache.backend() + " state: " + cache.state() + ")";
     }
     MiniRedis client = null;
     try {

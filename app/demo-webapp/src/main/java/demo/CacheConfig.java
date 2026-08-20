@@ -27,12 +27,14 @@ final class CacheConfig {
   private final int port;
   private final boolean tls;
   private final String state;
+  private final String backend;
 
-  private CacheConfig(String endpoint, int port, boolean tls, String state) {
+  private CacheConfig(String endpoint, int port, boolean tls, String state, String backend) {
     this.endpoint = endpoint;
     this.port = port;
     this.tls = tls;
     this.state = state;
+    this.backend = backend;
   }
 
   static CacheConfig current() {
@@ -61,7 +63,8 @@ final class CacheConfig {
     } catch (NumberFormatException ignored) {
       // fall back to the default Redis port rather than failing the page render
     }
-    return new CacheConfig(endpoint, parsedPort, "true".equalsIgnoreCase(tls), value(state, "unknown"));
+    return new CacheConfig(endpoint, parsedPort, "true".equalsIgnoreCase(tls),
+        value(state, "unknown"), value(read(dir, "backend"), "unknown"));
   }
 
   private static String read(Path dir, String key) {
@@ -98,5 +101,14 @@ final class CacheConfig {
 
   String state() {
     return state;
+  }
+
+  /** "elasticache", "in-tenant", or "unknown". Drives how the page describes itself. */
+  String backend() {
+    return backend;
+  }
+
+  boolean isElastiCache() {
+    return "elasticache".equals(backend);
   }
 }

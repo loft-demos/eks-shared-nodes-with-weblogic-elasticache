@@ -38,8 +38,11 @@ spec:
               imagePullSecrets:
                 - name: ocr-pull-secret
               auxiliaryImages:
-                - image: ghcr.io/loft-demos/vcluster-weblogic-demo-aux:0.2.1
+                - image: ghcr.io/loft-demos/vcluster-weblogic-demo-aux:0.2.2
                   imagePullPolicy: IfNotPresent
+            tenant:
+              name: "{{ .Values.tenantName }}"
+              hostNamespace: "{{ .Values.tenantHostNamespace }}"
             demoApp:
               enabled: true
               contextPath: "{{ .Values.appContextPath }}"
@@ -53,11 +56,13 @@ spec:
               extraTags:
                 tenant: "{{ .Values.domainUID }}"
             httpRoute:
-              enabled: true
-              host: "{{ .Values.appHost }}"
-              parentRef:
-                name: shared-gw
-                namespace: envoy-gateway-system
+              # Off deliberately. The route to the WebLogic cluster Service lives in the
+              # tenant template's spaceTemplate.objects, on the Control Plane Cluster: the
+              # operator creates that Service there and vCluster syncs it down, so a
+              # tenant-side backendRef to it is rejected as "not managed by vCluster".
+              # Leaving this on produced a second HTTPRoute claiming the same hostname
+              # that could never attach.
+              enabled: false
       destination: {}
       # The endpoint publisher writes into this ConfigMap once AWS reports an address.
       # Without this, Argo CD self-heal keeps resetting it to the empty placeholder and
@@ -90,6 +95,16 @@ spec:
       defaultValue: "3"
       min: 1
       max: 5
+    - variable: tenantName
+      label: Tenant Cluster Name
+      description: Shown on the demo page and in /health so each tenant identifies itself.
+      type: string
+    - variable: tenantHostNamespace
+      label: Backing Namespace
+      description: >-
+        Namespace on the Control Plane Cluster where the shared WebLogic operator creates
+        the server pods.
+      type: string
     - variable: appHost
       label: Application Hostname
       type: string

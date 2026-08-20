@@ -1,0 +1,11 @@
+# Build output
+app/demo-webapp/target/
+app/build/
+app/.m2/
+
+# Charts fetched by scripts/fetch-ack-chart.sh
+charts/*.tgz
+
+# Local overrides that may hold real values
+**/*.local.yaml
+logo-datauri.txt

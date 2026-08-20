@@ -31,8 +31,18 @@ domain:
     # Demo-owned: WDT model, WebLogic Deploy Tooling, and the demo WAR. Contains no
     # WebLogic Server, which is why it can be published publicly. Built multi-arch
     # (amd64 + arm64) by scripts/build-aux-image.sh.
-    - image: ghcr.io/loft-demos/vcluster-weblogic-demo-aux:0.2.1
+    - image: ghcr.io/loft-demos/vcluster-weblogic-demo-aux:0.2.2
       imagePullPolicy: IfNotPresent
+
+# Identity of the tenant cluster this domain belongs to, injected by the tenant cluster
+# template. Surfaced on the demo page and /health so a screen share, or a curl across
+# several tenants, is self-identifying. Both are optional: left empty, the page simply
+# omits the rows.
+tenant:
+  name: ""
+  # Namespace on the Control Plane Cluster where the shared operator actually creates
+  # these pods. Worth showing: the developer only ever sees the tenant's own namespace.
+  hostNamespace: ""
 
 cluster:
   name: cluster-1

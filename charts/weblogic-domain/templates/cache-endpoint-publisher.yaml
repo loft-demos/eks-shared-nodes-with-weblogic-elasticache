@@ -175,17 +175,26 @@ data:
         }
 
 
+    def read_configmap():
+        return request("GET", "/api/v1/namespaces/{}/configmaps/{}".format(NAMESPACE, CONFIGMAP))
+
+
     def main():
-        published = None
         while True:
             try:
                 if CACHE_MODE == "in-tenant":
                     state = in_tenant_state()
                 else:
                     state = desired_state(read_replication_group())
-                if state != published:
+                # Compare against the ConfigMap as it actually is, not against what this
+                # process last wrote. Argo CD re-applies every manifest whenever a sync
+                # runs - ignoreDifferences only suppresses drift *detection* - so the
+                # seeded empty placeholder comes back periodically. Reading the live object
+                # means the endpoint is restored within one interval instead of never.
+                actual = {k: v for k, v in (read_configmap().get("data") or {}).items()
+                          if k in state}
+                if state != actual:
                     patch_configmap(state)
-                    published = state
                     print("published {}".format(state), flush=True)
             except urllib.error.HTTPError as err:
                 print("api error {}: {}".format(err.code, err.reason), file=sys.stderr, flush=True)
