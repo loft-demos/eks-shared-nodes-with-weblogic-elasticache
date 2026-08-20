@@ -1,5 +1,14 @@
-# Environment-specific configuration lives on the Platform Cluster resource, not in the
-# tenant template. The template reads these through .Values.loft.clusterAnnotations, so
+# Environment-specific configuration for ONE cluster. Applied once at bootstrap:
+#
+#   kubectl apply -f examples/cluster-annotations.yaml
+#
+# Deliberately NOT under gitops/. These values describe a single cluster - its region, its
+# security group, its hostname - so a repo that anyone can sync would push one
+# environment's values onto another. Everything else under gitops/ references these
+# annotations by key rather than by value, so it stays portable.
+#
+# Nothing here is a secret: a security group ID is an identifier, not a credential, and the
+# hostname resolves publicly. It is simply per-cluster, which is a different thing. The template reads these through .Values.loft.clusterAnnotations, so
 # the same template works against any Control Plane Cluster that carries the annotations.
 #
 # Same pattern as the auto-snapshots + EKS Pod Identity use case:
@@ -12,7 +21,6 @@ kind: Cluster
 metadata:
   name: loft-cluster
   annotations:
-    argocd.argoproj.io/sync-wave: "-1"
     demos.vcluster.com/eks-cluster-name: weblogic-demo
     demos.vcluster.com/aws-region: us-west-2
     demos.vcluster.com/cache-subnet-group: weblogic-demo-cache-subnets

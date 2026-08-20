@@ -38,7 +38,7 @@ spec:
               imagePullSecrets:
                 - name: ocr-pull-secret
               auxiliaryImages:
-                - image: ghcr.io/loft-demos/vcluster-weblogic-demo-aux:0.2.0
+                - image: ghcr.io/loft-demos/vcluster-weblogic-demo-aux:0.2.1
                   imagePullPolicy: IfNotPresent
             demoApp:
               enabled: true

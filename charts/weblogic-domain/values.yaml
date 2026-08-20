@@ -31,7 +31,7 @@ domain:
     # Demo-owned: WDT model, WebLogic Deploy Tooling, and the demo WAR. Contains no
     # WebLogic Server, which is why it can be published publicly. Built multi-arch
     # (amd64 + arm64) by scripts/build-aux-image.sh.
-    - image: ghcr.io/loft-demos/vcluster-weblogic-demo-aux:0.2.0
+    - image: ghcr.io/loft-demos/vcluster-weblogic-demo-aux:0.2.1
       imagePullPolicy: IfNotPresent
 
 cluster:
@@ -44,7 +44,14 @@ demoApp:
   contextPath: /demo
 
 httpRoute:
-  enabled: true
+  # Off by default. A tenant-side HTTPRoute cannot reference the WebLogic cluster Service:
+  # the operator creates that Service on the Control Plane Cluster and vCluster syncs it
+  # down, so it is host-owned and backendRef translation fails with "not managed by
+  # vCluster". The tenant template creates the route in the backing namespace instead.
+  #
+  # Turn this on only to route to an ordinary tenant Deployment, such as
+  # ancillaryServices, where the Service really is tenant-owned.
+  enabled: false
   name: wi-app
   host: wi-clienta-uat.apps.example.com
   parentRef:

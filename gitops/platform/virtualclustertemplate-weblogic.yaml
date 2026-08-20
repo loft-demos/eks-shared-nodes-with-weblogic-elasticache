@@ -67,6 +67,38 @@ spec:
         type: kubernetes.io/dockerconfigjson
         data:
           .dockerconfigjson: e30K
+        ---
+        # The route lives here, on the Control Plane Cluster, rather than in the tenant.
+        #
+        # A tenant-defined HTTPRoute cannot reference the WebLogic cluster Service. That
+        # Service is created by the operator HERE and synced down into the tenant, so it is
+        # host-owned; vCluster only rewrites backendRefs for objects it synced up, and
+        # refuses with:
+        #   referenced host Service "<domainUID>-cluster-<cluster>" ... is not managed by vCluster
+        #
+        # This is the boundary of the model rather than a defect: anything the shared host
+        # operator creates is host-owned, so the route to it belongs here too. Tenant-authored
+        # HTTPRoutes still work normally for ordinary tenant Deployments.
+        apiVersion: gateway.networking.k8s.io/v1
+        kind: HTTPRoute
+        metadata:
+          name: wi-app
+        spec:
+          parentRefs:
+            - name: shared-gw
+              namespace: envoy-gateway-system
+          hostnames:
+            - '{{ .Values.loft.virtualClusterName }}.{{ index .Values.loft.clusterAnnotations "demos.vcluster.com/app-domain" }}'
+          rules:
+            - matches:
+                - path:
+                    type: PathPrefix
+                    value: /demo
+              backendRefs:
+                # <domainUID>-cluster-<clusterName> from the chart. Both are fixed there,
+                # so this name is stable.
+                - name: wi-domain-cluster-cluster-1
+                  port: 8001
     pro:
       enabled: true
     helmRelease:

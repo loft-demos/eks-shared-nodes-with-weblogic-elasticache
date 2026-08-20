@@ -6,9 +6,15 @@ the tenant instances — is managed by Argo CD rather than applied by hand.
 ```
 gitops/
   bootstrap/   the single Application you apply manually
-  platform/    Project, Cluster annotations, VirtualClusterTemplate, ArgoCDApplicationTemplate
+  platform/    Project, VirtualClusterTemplate, ArgoCDApplicationTemplate
   tenants/     one VirtualClusterInstance per client and environment
 ```
+
+Everything here is portable: the templates reference the `Cluster` annotations by key, never
+by value. The annotations themselves are **not** managed from Git - see
+[`examples/cluster-annotations.yaml`](../examples/cluster-annotations.yaml). They describe
+one specific cluster, so syncing them from a shared repo would push one environment's
+region, security group, and hostname onto another. Apply them once at bootstrap.
 
 Bootstrap once, after Argo CD and the Platform are both running:
 
@@ -24,7 +30,7 @@ A plain recursive directory sync with sync waves, rather than several Applicatio
 
 | Wave | Objects | Why |
 |---|---|---|
-| `-1` | `Project`, `Cluster` | The Project creates the `p-<name>` namespace tenants live in |
+| `-1` | `Project` | Creates the `p-<name>` namespace tenants live in |
 | `0` | `VirtualClusterTemplate`, `ArgoCDApplicationTemplate` | Referenced by tenants |
 | `1` | `VirtualClusterInstance` | Needs both of the above |
 

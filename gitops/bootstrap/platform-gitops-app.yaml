@@ -43,7 +43,3 @@ spec:
       kind: Project
       jsonPointers:
         - /spec/access
-    - group: management.loft.sh
-      kind: Cluster
-      jsonPointers:
-        - /spec/access
