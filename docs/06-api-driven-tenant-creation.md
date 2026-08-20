@@ -37,6 +37,27 @@ curl -X POST \
       }'
 ```
 
+## `defaultValue` is a UI concept
+
+A template parameter's `defaultValue` populates the **Platform UI form**. It is not applied
+server-side. An instance created through the API or GitOps that omits a parameter renders it
+as an empty string, and the failure names the type rather than the parameter:
+
+```
+ErrorModifyingTemplate
+Error modifying template: error unmarshaling JSON: while decoding JSON: invalid duration
+```
+
+That one came from `sleep.auto.afterInactivity` rendering empty. Nothing in the message says
+"sleepAfterInactivity", so match the type in the error against the template: `invalid
+duration` means a duration field, and there is only one.
+
+The template therefore carries a Go-template `default` on every parameter it reads, which is
+what makes the minimal call above work. Prefer that over relying on the caller: a template
+that only works from the UI form is a template that breaks the first time someone automates
+it.
+
+
 [`scripts/create-tenant-via-api.sh`](../scripts/create-tenant-via-api.sh) wraps that and
 polls until the tenant reports `Ready`.
 

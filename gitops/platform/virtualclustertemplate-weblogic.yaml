@@ -188,11 +188,18 @@ spec:
                     virtualNamespacePolicy:
                       from: All
 
+        # Every parameter below carries a `default`. A template parameter's `defaultValue` is
+        # applied by the Platform UI form, NOT server-side: a VirtualClusterInstance created
+        # through the API or GitOps that omits a parameter renders it as an empty string. For
+        # sleep that produced `afterInactivity:` with no value and the instance failed with
+        # "error unmarshaling JSON: while decoding JSON: invalid duration", which does not
+        # name the parameter that was missing.
+        #
         # Shared nodes, pre-production only. This is the cost story for the repeated
         # Dev/QA, Lab, and UAT environments. Production tenants omit this block.
         sleep:
           auto:
-            afterInactivity: {{ .Values.sleepAfterInactivity }}
+            afterInactivity: {{ .Values.sleepAfterInactivity | default "2h" }}
             schedule: "0 20 * * 1-5"
             wakeup:
               schedule: "0 7 * * 1-5"
@@ -234,13 +241,13 @@ spec:
                   parameters:
                     namespace: wi
                     domainUID: wi-domain
-                    managedServerCount: "{{ .Values.managedServerCount }}"
+                    managedServerCount: "{{ .Values.managedServerCount | default 3 }}"
                     appHost: '{{ .Values.loft.virtualClusterName }}.{{ index (.Values.loft.clusterAnnotations | default dict) "demos.vcluster.com/app-domain" }}'
                     appContextPath: /demo
                     tenantName: '{{ .Values.loft.virtualClusterName }}'
                     tenantHostNamespace: '{{ .Values.loft.virtualClusterNamespace }}'
-                    cacheMode: "{{ .Values.cacheMode }}"
-                    cacheNodeType: "{{ .Values.cacheNodeType }}"
+                    cacheMode: "{{ .Values.cacheMode | default "in-tenant" }}"
+                    cacheNodeType: "{{ .Values.cacheNodeType | default "cache.t4g.micro" }}"
                     cacheSubnetGroupName: '{{ index (.Values.loft.clusterAnnotations | default dict) "demos.vcluster.com/cache-subnet-group" }}'
                     cacheSecurityGroupID: '{{ index (.Values.loft.clusterAnnotations | default dict) "demos.vcluster.com/cache-security-group" }}'
   parameters:
