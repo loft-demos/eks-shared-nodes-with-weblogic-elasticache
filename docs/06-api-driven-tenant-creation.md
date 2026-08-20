@@ -20,6 +20,17 @@ The Platform management API is a Kubernetes API server serving `management.loft.
 reachable at `https://<loftHost>/kubernetes/management`. Authentication is a Platform
 access key as a bearer token.
 
+Set these once, off screen:
+
+```bash
+export LOFT_DOMAIN=platform.example.com
+export ACCESS_KEY=...        # Platform > User > Access Keys
+```
+
+Then the whole thing is one call. This is the one to run in front of people: it is a plain
+HTTP POST with a bearer token, which is the point being made — no vCluster CLI, no
+kubeconfig, nothing a Salesforce callout or a ServiceNow action could not do.
+
 ```bash
 curl -X POST \
   "https://$LOFT_DOMAIN/kubernetes/management/apis/management.loft.sh/v1/namespaces/p-weblogic-tenants/virtualclusterinstances" \
@@ -36,6 +47,21 @@ curl -X POST \
         }
       }'
 ```
+
+The response is the created object. Append `-s | jq -r '.metadata.name + " " + .status.phase'`
+if a full JSON dump is not what you want on screen.
+
+Then watch it come up. `in-tenant` is the mode to pick for this: seconds, not the five to
+ten minutes ElastiCache takes.
+
+```bash
+while true; do
+  curl -s "https://$LOFT_DOMAIN/kubernetes/management/apis/management.loft.sh/v1/namespaces/p-weblogic-tenants/virtualclusterinstances/acme-corp-uat" \
+    -H "Authorization: Bearer $ACCESS_KEY" | jq -r '.status.phase'
+  sleep 3
+done
+```
+
 
 ## `defaultValue` is a UI concept
 
@@ -57,14 +83,18 @@ what makes the minimal call above work. Prefer that over relying on the caller: 
 that only works from the UI form is a template that breaks the first time someone automates
 it.
 
-[`scripts/create-tenant-via-api.sh`](../scripts/create-tenant-via-api.sh) wraps that and
-polls until the tenant reports `Ready`.
+[`scripts/create-tenant-via-api.sh`](../scripts/create-tenant-via-api.sh) wraps the same
+call, polls until `Ready`, and stops with the reason if the instance fails. Use it for
+automation — but demo the raw `curl` above. The script hides the very thing the demo is
+meant to show, which is that creating a tenant is one authenticated HTTP request.
 
-Two details that cost time:
+Three details that cost time:
 
-- **`spec.owner` is required.** The UI fills it in from the logged-in user; the API does
-  not. Without it the tenant fails with "access key has no valid owner", because the Argo
-  CD integration mints a per-tenant access key that inherits the tenant's owner.
+- **`spec.owner` depends on how you create it.** Over this API the Platform fills it in
+  from the access key's own user, so the call above can omit it. A `VirtualClusterInstance`
+  applied by `kubectl` or managed by Argo CD has no such user, and fails with "access key
+  has no valid owner" — the Argo CD integration mints a per-tenant access key that
+  inherits the tenant's owner. Set `spec.owner.user` explicitly on the GitOps path.
 - **`spec.parameters` is a YAML string, not an object.** It carries the template's
   parameter values as a block of YAML inside a JSON string field.
 - **The project namespace prefix comes from Platform Config.** `p-` is the default, giving
