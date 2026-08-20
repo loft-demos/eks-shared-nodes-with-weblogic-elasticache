@@ -3,6 +3,10 @@ kind: User
 metadata:
   name: weblogic-tenant-a
 spec:
+  # Required, and the API only says "spec.subject: Required value" without saying what
+  # belongs in it. For a local user it is the login identity, same as username; for an
+  # SSO user it is the subject the identity provider asserts.
+  subject: weblogic-dev-a
   username: weblogic-dev-a
   displayName: WebLogic Dev A
   owner:
