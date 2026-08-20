@@ -28,4 +28,8 @@ spec:
         - permissions
         - object-permissions
       users:
-        - weblogic-dev-a
+        # The User's metadata.name, NOT its username. The Platform rewrites this field to
+        # the object name on write, so anything else drifts immediately and Argo CD
+        # self-heal fights it on every sync. Invisible on the built-in admin user, whose
+        # name and username happen to be the same.
+        - weblogic-tenant-a
