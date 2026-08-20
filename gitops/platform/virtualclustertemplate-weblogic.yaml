@@ -31,6 +31,9 @@ spec:
         tenancy.loft.sh/model: shared-node
     instanceTemplate:
       metadata:
+        annotations:
+          loft.sh/custom-links: >-
+            WegLogicApp='https://{{ .Values.loft.virtualClusterName }}.{{ index .Values.loft.clusterAnnotations "demos.vcluster.com/app-domain" }}'
         labels:
           app.kubernetes.io/part-of: vcluster-weblogic-demo
     spaceTemplate:
