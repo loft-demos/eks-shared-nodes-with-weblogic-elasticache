@@ -1,0 +1,7 @@
+apiVersion: management.loft.sh/v1
+kind: User
+metadata:
+  name: weblogic-tenant-a
+spec:
+  username: weblogic-dev-a
+  displayName: WebLogic Dev A
