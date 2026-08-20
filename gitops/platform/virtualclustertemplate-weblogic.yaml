@@ -32,8 +32,11 @@ spec:
     instanceTemplate:
       metadata:
         annotations:
+          # NAME=URL, one per line, and the value must be a bare URL. The quotes that
+          # used to wrap this were inside a `>-` folded scalar, so they were literal
+          # characters in the annotation and the Platform rendered no link at all.
           loft.sh/custom-links: >-
-            WegLogicApp='https://{{ .Values.loft.virtualClusterName }}.{{ index (.Values.loft.clusterAnnotations | default dict) "demos.vcluster.com/app-domain" }}/demo/'
+            WebLogicApp=https://{{ .Values.loft.virtualClusterName }}.{{ index (.Values.loft.clusterAnnotations | default dict) "demos.vcluster.com/app-domain" }}/demo/
         labels:
           app.kubernetes.io/part-of: vcluster-weblogic-demo
     spaceTemplate:
