@@ -1,0 +1,7 @@
+apiVersion: management.loft.sh/v1
+kind: Team
+metadata:
+  name: weblogic-devs
+spec:
+  displayName: WebLogic Developers
+  access: []
