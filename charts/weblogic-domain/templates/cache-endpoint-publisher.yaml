@@ -1,3 +1,135 @@
+{{/*
+The publisher script, as a named template so the Deployment below can hash it.
+Hashing the file itself would recurse: the ConfigMap and the Deployment are both
+in this one file.
+*/}}
+{{- define "weblogic-demo.publisherScript" -}}
+"""Mirror the ACK ReplicationGroup endpoint into a ConfigMap the WebLogic pods mount."""
+import json
+import os
+import ssl
+import sys
+import time
+import urllib.error
+import urllib.request
+
+API = "https://kubernetes.default.svc"
+SA = "/var/run/secrets/kubernetes.io/serviceaccount"
+NAMESPACE = os.environ["NAMESPACE"]
+CACHE_MODE = os.environ.get("CACHE_MODE", "elasticache")
+REPLICATION_GROUP = os.environ["REPLICATION_GROUP"]
+CACHE_SERVICE = os.environ["CACHE_SERVICE"]
+CONFIGMAP = os.environ["CONFIGMAP"]
+INTERVAL = int(os.environ.get("INTERVAL_SECONDS", "15"))
+
+CONTEXT = ssl.create_default_context(cafile=SA + "/ca.crt")
+
+
+def token():
+    # Read on every call: projected service account tokens are rotated, and a
+    # publisher that cached one at startup would 401 forever an hour into the demo.
+    with open(SA + "/token") as handle:
+        return handle.read().strip()
+
+
+def request(method, path, body=None, content_type=None):
+    req = urllib.request.Request(API + path, method=method)
+    req.add_header("Authorization", "Bearer " + token())
+    req.add_header("Accept", "application/json")
+    if body is not None:
+        payload = json.dumps(body).encode()
+        req.add_header("Content-Type", content_type)
+        req.data = payload
+    with urllib.request.urlopen(req, context=CONTEXT, timeout=15) as response:
+        return json.loads(response.read())
+
+
+def read_replication_group():
+    path = "/apis/elasticache.services.k8s.aws/v1alpha1/namespaces/{}/replicationgroups/{}".format(
+        NAMESPACE, REPLICATION_GROUP
+    )
+    return request("GET", path)
+
+
+def read_service():
+    return request("GET", "/api/v1/namespaces/{}/services/{}".format(NAMESPACE, CACHE_SERVICE))
+
+
+def patch_configmap(data):
+    path = "/api/v1/namespaces/{}/configmaps/{}".format(NAMESPACE, CONFIGMAP)
+    return request("PATCH", path, {"data": data}, "application/merge-patch+json")
+
+
+def in_tenant_state():
+    """Publish the Service ClusterIP, not its DNS name.
+
+    The WebLogic pods are created on the Control Plane Cluster by the operator, so they
+    resolve against host CoreDNS and a tenant Service name does not exist for them.
+    vCluster recreates the tenant Service with the host Service's ClusterIP, so the IP
+    is reachable from both sides.
+    """
+    svc = read_service()
+    ip = (svc.get("spec") or {}).get("clusterIP") or ""
+    ports = (svc.get("spec") or {}).get("ports") or [{}]
+    if ip in ("", "None"):
+        return {"endpoint": "", "port": "6379", "tls": "false", "state": "pending"}
+    return {
+        "endpoint": ip,
+        "port": str(ports[0].get("port") or 6379),
+        "tls": "false",
+        "state": "available",
+    }
+
+
+def desired_state(group):
+    status = group.get("status", {})
+    spec = group.get("spec", {})
+    node_groups = status.get("nodeGroups") or []
+    endpoint = {}
+    if node_groups:
+        endpoint = node_groups[0].get("primaryEndpoint") or {}
+    # Cluster-mode-enabled groups report a configuration endpoint instead.
+    if not endpoint:
+        endpoint = status.get("configurationEndpoint") or {}
+    return {
+        "endpoint": endpoint.get("address") or "",
+        "port": str(endpoint.get("port") or spec.get("port") or 6379),
+        "tls": "true" if spec.get("transitEncryptionEnabled") else "false",
+        "state": status.get("status") or "unknown",
+    }
+
+
+def read_configmap():
+    return request("GET", "/api/v1/namespaces/{}/configmaps/{}".format(NAMESPACE, CONFIGMAP))
+
+
+def main():
+    while True:
+        try:
+            if CACHE_MODE == "in-tenant":
+                state = in_tenant_state()
+            else:
+                state = desired_state(read_replication_group())
+            # Compare against the ConfigMap as it actually is, not against what this
+            # process last wrote. Argo CD re-applies every manifest whenever a sync
+            # runs - ignoreDifferences only suppresses drift *detection* - so the
+            # seeded empty placeholder comes back periodically. Reading the live object
+            # means the endpoint is restored within one interval instead of never.
+            actual = {k: v for k, v in (read_configmap().get("data") or {}).items()
+                      if k in state}
+            if state != actual:
+                patch_configmap(state)
+                print("published {}".format(state), flush=True)
+        except urllib.error.HTTPError as err:
+            print("api error {}: {}".format(err.code, err.reason), file=sys.stderr, flush=True)
+        except Exception as err:  # keep the loop alive through transient failures
+            print("publish failed: {}".format(err), file=sys.stderr, flush=True)
+        time.sleep(INTERVAL)
+
+
+main()
+{{- end -}}
+
 {{- if and (include "weblogic-demo.cacheEnabled" .) .Values.cachePublisher.enabled }}
 {{- $ns := include "weblogic-demo.namespace" . -}}
 {{- $name := include "weblogic-demo.cachePublisherName" . -}}
@@ -80,130 +212,7 @@ metadata:
     app.kubernetes.io/part-of: weblogic-demo
 data:
   publish.py: |
-    """Mirror the ACK ReplicationGroup endpoint into a ConfigMap the WebLogic pods mount."""
-    import json
-    import os
-    import ssl
-    import sys
-    import time
-    import urllib.error
-    import urllib.request
-
-    API = "https://kubernetes.default.svc"
-    SA = "/var/run/secrets/kubernetes.io/serviceaccount"
-    NAMESPACE = os.environ["NAMESPACE"]
-    CACHE_MODE = os.environ.get("CACHE_MODE", "elasticache")
-    REPLICATION_GROUP = os.environ["REPLICATION_GROUP"]
-    CACHE_SERVICE = os.environ["CACHE_SERVICE"]
-    CONFIGMAP = os.environ["CONFIGMAP"]
-    INTERVAL = int(os.environ.get("INTERVAL_SECONDS", "15"))
-
-    CONTEXT = ssl.create_default_context(cafile=SA + "/ca.crt")
-
-
-    def token():
-        # Read on every call: projected service account tokens are rotated, and a
-        # publisher that cached one at startup would 401 forever an hour into the demo.
-        with open(SA + "/token") as handle:
-            return handle.read().strip()
-
-
-    def request(method, path, body=None, content_type=None):
-        req = urllib.request.Request(API + path, method=method)
-        req.add_header("Authorization", "Bearer " + token())
-        req.add_header("Accept", "application/json")
-        if body is not None:
-            payload = json.dumps(body).encode()
-            req.add_header("Content-Type", content_type)
-            req.data = payload
-        with urllib.request.urlopen(req, context=CONTEXT, timeout=15) as response:
-            return json.loads(response.read())
-
-
-    def read_replication_group():
-        path = "/apis/elasticache.services.k8s.aws/v1alpha1/namespaces/{}/replicationgroups/{}".format(
-            NAMESPACE, REPLICATION_GROUP
-        )
-        return request("GET", path)
-
-
-    def read_service():
-        return request("GET", "/api/v1/namespaces/{}/services/{}".format(NAMESPACE, CACHE_SERVICE))
-
-
-    def patch_configmap(data):
-        path = "/api/v1/namespaces/{}/configmaps/{}".format(NAMESPACE, CONFIGMAP)
-        return request("PATCH", path, {"data": data}, "application/merge-patch+json")
-
-
-    def in_tenant_state():
-        """Publish the Service ClusterIP, not its DNS name.
-
-        The WebLogic pods are created on the Control Plane Cluster by the operator, so they
-        resolve against host CoreDNS and a tenant Service name does not exist for them.
-        vCluster recreates the tenant Service with the host Service's ClusterIP, so the IP
-        is reachable from both sides.
-        """
-        svc = read_service()
-        ip = (svc.get("spec") or {}).get("clusterIP") or ""
-        ports = (svc.get("spec") or {}).get("ports") or [{}]
-        if ip in ("", "None"):
-            return {"endpoint": "", "port": "6379", "tls": "false", "state": "pending"}
-        return {
-            "endpoint": ip,
-            "port": str(ports[0].get("port") or 6379),
-            "tls": "false",
-            "state": "available",
-        }
-
-
-    def desired_state(group):
-        status = group.get("status", {})
-        spec = group.get("spec", {})
-        node_groups = status.get("nodeGroups") or []
-        endpoint = {}
-        if node_groups:
-            endpoint = node_groups[0].get("primaryEndpoint") or {}
-        # Cluster-mode-enabled groups report a configuration endpoint instead.
-        if not endpoint:
-            endpoint = status.get("configurationEndpoint") or {}
-        return {
-            "endpoint": endpoint.get("address") or "",
-            "port": str(endpoint.get("port") or spec.get("port") or 6379),
-            "tls": "true" if spec.get("transitEncryptionEnabled") else "false",
-            "state": status.get("status") or "unknown",
-        }
-
-
-    def read_configmap():
-        return request("GET", "/api/v1/namespaces/{}/configmaps/{}".format(NAMESPACE, CONFIGMAP))
-
-
-    def main():
-        while True:
-            try:
-                if CACHE_MODE == "in-tenant":
-                    state = in_tenant_state()
-                else:
-                    state = desired_state(read_replication_group())
-                # Compare against the ConfigMap as it actually is, not against what this
-                # process last wrote. Argo CD re-applies every manifest whenever a sync
-                # runs - ignoreDifferences only suppresses drift *detection* - so the
-                # seeded empty placeholder comes back periodically. Reading the live object
-                # means the endpoint is restored within one interval instead of never.
-                actual = {k: v for k, v in (read_configmap().get("data") or {}).items()
-                          if k in state}
-                if state != actual:
-                    patch_configmap(state)
-                    print("published {}".format(state), flush=True)
-            except urllib.error.HTTPError as err:
-                print("api error {}: {}".format(err.code, err.reason), file=sys.stderr, flush=True)
-            except Exception as err:  # keep the loop alive through transient failures
-                print("publish failed: {}".format(err), file=sys.stderr, flush=True)
-            time.sleep(INTERVAL)
-
-
-    main()
+    {{- include "weblogic-demo.publisherScript" . | nindent 4 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -222,6 +231,12 @@ spec:
       app.kubernetes.io/name: {{ $name }}
   template:
     metadata:
+      annotations:
+        # Roll the publisher whenever the script changes. The script is a ConfigMap volume,
+        # so kubelet refreshes the file in place but the running python process already
+        # loaded the old code - a script fix would otherwise sit on disk, unused, until
+        # something else happened to restart the pod.
+        checksum/script: {{ include "weblogic-demo.publisherScript" . | sha256sum | trunc 16 }}
       labels:
         app.kubernetes.io/name: {{ $name }}
         app.kubernetes.io/part-of: weblogic-demo
