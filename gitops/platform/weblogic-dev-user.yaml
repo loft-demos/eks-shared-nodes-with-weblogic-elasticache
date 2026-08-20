@@ -5,3 +5,23 @@ metadata:
 spec:
   username: weblogic-dev-a
   displayName: WebLogic Dev A
+  owner:
+    team: loft-admins
+  access:
+    - name: loft-access
+      verbs:
+        - get
+        - bind
+        - create
+        - deletekey
+        - getkey
+        - updatekey
+        - createkey
+      subresources:
+        - accesskeys
+        - clusters
+        - profile
+        - permissions
+        - object-permissions
+      users:
+        - weblogic-dev-a

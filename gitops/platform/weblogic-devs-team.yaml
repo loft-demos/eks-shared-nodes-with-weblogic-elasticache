@@ -4,4 +4,12 @@ metadata:
   name: weblogic-devs
 spec:
   displayName: WebLogic Developers
-  access: []
+  access:	
+    - name: loft-access	
+      subresources:	
+        - clusters	
+      teams:	
+        - weblogic-devs	
+      verbs:	
+        - get	
+        - bind
