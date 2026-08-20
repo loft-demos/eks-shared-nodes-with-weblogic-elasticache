@@ -13,3 +13,5 @@ spec:
       verbs:
         - get
         - bind
+  users:
+    - weblogic-tenant-a

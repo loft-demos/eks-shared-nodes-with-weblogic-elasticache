@@ -30,6 +30,15 @@ spec:
   allowedNodeProfiles: null
   requireTemplate: {}
   requirePreset: {}
+  members:
+    - kind: Team
+      group: storage.loft.sh
+      name: weblogic-devs
+      clusterRole: loft-management-project-user
+    - kind: Team
+      group: storage.loft.sh
+      name: loft-admins
+      clusterRole: loft-management-project-admin
   access:
     - name: loft-admin-access
       verbs:
