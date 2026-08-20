@@ -33,7 +33,7 @@ spec:
       metadata:
         annotations:
           loft.sh/custom-links: >-
-            WegLogicApp='https://{{ .Values.loft.virtualClusterName }}.{{ index .Values.loft.clusterAnnotations "demos.vcluster.com/app-domain" }}'
+            WegLogicApp='https://{{ .Values.loft.virtualClusterName }}.{{ index (.Values.loft.clusterAnnotations | default dict) "demos.vcluster.com/app-domain" }}/demo/'
         labels:
           app.kubernetes.io/part-of: vcluster-weblogic-demo
     spaceTemplate:
@@ -91,7 +91,7 @@ spec:
             - name: shared-gw
               namespace: envoy-gateway-system
           hostnames:
-            - '{{ .Values.loft.virtualClusterName }}.{{ index .Values.loft.clusterAnnotations "demos.vcluster.com/app-domain" }}'
+            - '{{ .Values.loft.virtualClusterName }}.{{ index (.Values.loft.clusterAnnotations | default dict) "demos.vcluster.com/app-domain" }}'
           rules:
             - matches:
                 - path:
@@ -196,7 +196,7 @@ spec:
             schedule: "0 20 * * 1-5"
             wakeup:
               schedule: "0 7 * * 1-5"
-            timezone: '{{ default "America/New_York" (index .Values.loft.clusterAnnotations "demos.vcluster.com/timezone") }}'
+            timezone: '{{ default "America/New_York" (index (.Values.loft.clusterAnnotations | default dict) "demos.vcluster.com/timezone") }}'
 
         controlPlane:
           distro:
@@ -235,12 +235,12 @@ spec:
                     namespace: wi
                     domainUID: wi-domain
                     managedServerCount: "{{ .Values.managedServerCount }}"
-                    appHost: '{{ .Values.loft.virtualClusterName }}.{{ index .Values.loft.clusterAnnotations "demos.vcluster.com/app-domain" }}'
+                    appHost: '{{ .Values.loft.virtualClusterName }}.{{ index (.Values.loft.clusterAnnotations | default dict) "demos.vcluster.com/app-domain" }}'
                     appContextPath: /demo
                     cacheMode: "{{ .Values.cacheMode }}"
                     cacheNodeType: "{{ .Values.cacheNodeType }}"
-                    cacheSubnetGroupName: '{{ index .Values.loft.clusterAnnotations "demos.vcluster.com/cache-subnet-group" }}'
-                    cacheSecurityGroupID: '{{ index .Values.loft.clusterAnnotations "demos.vcluster.com/cache-security-group" }}'
+                    cacheSubnetGroupName: '{{ index (.Values.loft.clusterAnnotations | default dict) "demos.vcluster.com/cache-subnet-group" }}'
+                    cacheSecurityGroupID: '{{ index (.Values.loft.clusterAnnotations | default dict) "demos.vcluster.com/cache-security-group" }}'
   parameters:
     - variable: cacheMode
       label: Cache Backend
