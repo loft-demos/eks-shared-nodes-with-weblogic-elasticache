@@ -31,7 +31,7 @@ domain:
     # Demo-owned: WDT model, WebLogic Deploy Tooling, and the demo WAR. Contains no
     # WebLogic Server, which is why it can be published publicly. Built multi-arch
     # (amd64 + arm64) by scripts/build-aux-image.sh.
-    - image: ghcr.io/loft-demos/vcluster-weblogic-demo-aux:0.2.2
+    - image: ghcr.io/loft-demos/vcluster-weblogic-demo-aux:0.2.3
       imagePullPolicy: IfNotPresent
 
 # Identity of the tenant cluster this domain belongs to, injected by the tenant cluster

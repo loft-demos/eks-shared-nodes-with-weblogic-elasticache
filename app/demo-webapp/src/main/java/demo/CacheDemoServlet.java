@@ -14,10 +14,10 @@ import javax.servlet.http.HttpServletResponse;
 /**
  * The page the audience actually looks at.
  *
- * Every request increments a counter in ElastiCache and appends the serving managed
+ * Every request increments a counter in the tenant's cache and appends the serving managed
  * server to a short history list. Refreshing shows the request landing on different
  * managed servers while the counter keeps climbing, which is the point: the state lives
- * in an AWS cache the tenant asked for through ACK, not in any one WebLogic JVM.
+ * in the cache the tenant was given, not in any one WebLogic JVM.
  */
 @WebServlet(urlPatterns = {"/"})
 public class CacheDemoServlet extends HttpServlet {
@@ -148,7 +148,8 @@ public class CacheDemoServlet extends HttpServlet {
     if (result.status == CacheResult.Status.CONNECTED) {
       out.println("<div class=\"card\">");
       out.println("<div class=\"count\">" + result.hits + "</div>");
-      out.println("<p class=\"sub\" style=\"margin:.5rem 0 0\">requests served, counted in ElastiCache</p>");
+      out.println("<p class=\"sub\" style=\"margin:.5rem 0 0\">requests served, counted in "
+          + escape(cacheLabel(cache)) + "</p>");
       out.println("<ol>");
       for (Object entry : result.history) {
         out.println("<li>" + escape(String.valueOf(entry)) + "</li>");
@@ -164,9 +165,7 @@ public class CacheDemoServlet extends HttpServlet {
     } else {
       out.println("<div class=\"card warn\"><strong>Could not reach the cache.</strong>");
       out.println("<p class=\"sub\" style=\"margin:.5rem 0 0\">" + escape(result.error) + "</p>");
-      out.println("<p class=\"sub\">Check the ElastiCache security group allows 6379 from the "
-          + "EKS node security group, and that in-transit encryption matches the "
-          + "<code>tls</code> value in the endpoint ConfigMap.</p></div>");
+      out.println("<p class=\"sub\">" + unreachableHint(cache) + "</p></div>");
     }
 
     out.println("</div></body></html>");
@@ -181,6 +180,29 @@ public class CacheDemoServlet extends HttpServlet {
       return "Redis running inside the tenant cluster, reached by ClusterIP.";
     }
     return "Cache details are published into a ConfigMap the domain mounts.";
+  }
+
+  /** Short name for the cache, for inline use in a sentence. */
+  private static String cacheLabel(CacheConfig cache) {
+    if (cache.isElastiCache()) {
+      return "ElastiCache";
+    }
+    if ("in-tenant".equals(cache.backend())) {
+      return "Redis inside the tenant cluster";
+    }
+    return "the shared cache";
+  }
+
+  /** Where to look when the cache will not answer. The two backends fail differently. */
+  private static String unreachableHint(CacheConfig cache) {
+    if (cache.isElastiCache()) {
+      return "Check the ElastiCache security group allows 6379 from the EKS node security "
+          + "group, and that in-transit encryption matches the <code>tls</code> value in the "
+          + "endpoint ConfigMap.";
+    }
+    return "Check the Redis pod is running in the tenant and that the ClusterIP in the "
+        + "endpoint ConfigMap still matches its Service. WebLogic pods are created on the "
+        + "Control Plane Cluster, so they reach it by address rather than by name.";
   }
 
   private static String pendingBlurb(CacheConfig cache) {

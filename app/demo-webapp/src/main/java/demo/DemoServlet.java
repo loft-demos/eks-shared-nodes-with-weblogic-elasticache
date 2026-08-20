@@ -8,7 +8,7 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-/** Plain-text probe endpoint. Also reports whether the ElastiCache endpoint is reachable. */
+/** Plain-text probe endpoint. Also reports whether the tenant cache is reachable. */
 @WebServlet("/health")
 public class DemoServlet extends HttpServlet {
 

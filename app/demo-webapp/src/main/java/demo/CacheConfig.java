@@ -7,11 +7,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 /**
- * Reads the ElastiCache connection details that the tenant-side endpoint publisher
+ * Reads the cache connection details that the tenant-side endpoint publisher
  * writes into a ConfigMap.
  *
  * The ConfigMap is mounted as a directory (never with subPath), so kubelet refreshes
- * the files in place when ACK finally reports the endpoint. Re-reading on a short TTL
+ * the files in place when the endpoint is finally reported. Re-reading on a short TTL
  * means the WebLogic domain picks up a newly provisioned cache without a restart, which
  * matters because a WebLogic restart is the slowest thing in this demo.
  */
