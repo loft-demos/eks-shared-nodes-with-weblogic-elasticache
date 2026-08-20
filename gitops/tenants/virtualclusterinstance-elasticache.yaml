@@ -3,7 +3,7 @@ kind: VirtualClusterInstance
 metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "1"
-  name: wi-clienta-uat
+  name: wi-clientb-uat
   namespace: p-weblogic-tenants
   labels:
     vcluster.loft.sh/client: clienta
