@@ -43,7 +43,7 @@ A template parameter's `defaultValue` populates the **Platform UI form**. It is 
 server-side. An instance created through the API or GitOps that omits a parameter renders it
 as an empty string, and the failure names the type rather than the parameter:
 
-```
+```log
 ErrorModifyingTemplate
 Error modifying template: error unmarshaling JSON: while decoding JSON: invalid duration
 ```
@@ -56,7 +56,6 @@ The template therefore carries a Go-template `default` on every parameter it rea
 what makes the minimal call above work. Prefer that over relying on the caller: a template
 that only works from the UI form is a template that breaks the first time someone automates
 it.
-
 
 [`scripts/create-tenant-via-api.sh`](../scripts/create-tenant-via-api.sh) wraps that and
 polls until the tenant reports `Ready`.
@@ -73,6 +72,43 @@ Two details that cost time:
 
 An access key inherits the permissions of the user that created it. Create a dedicated
 user scoped to the project rather than issuing an admin key to an integration.
+
+## Checking on it, and deleting it
+
+Same path, with the instance name appended. `GET` to watch it come up:
+
+```bash
+curl -s \
+  "https://$LOFT_DOMAIN/kubernetes/management/apis/management.loft.sh/v1/namespaces/p-weblogic-tenants/virtualclusterinstances/acme-corp-uat" \
+  -H "Authorization: Bearer $ACCESS_KEY" \
+  | jq -r '.status | "\(.phase) \(.reason // "") \(.message // "")"'
+```
+
+`DELETE` to remove it:
+
+```bash
+curl -X DELETE \
+  "https://$LOFT_DOMAIN/kubernetes/management/apis/management.loft.sh/v1/namespaces/p-weblogic-tenants/virtualclusterinstances/acme-corp-uat" \
+  -H "Authorization: Bearer $ACCESS_KEY"
+```
+
+Deleting the instance takes the backing namespace and everything in it, so there is no
+separate cleanup for the Domain, the Argo CD Application, or the cache.
+
+**One caveat, and it only bites `cacheMode: elasticache`.** The tenant's `ReplicationGroup`
+carries an ACK finalizer, and ACK will not release it until AWS has actually finished
+deleting the replication group — which takes minutes. Until then the namespace sits in
+`Terminating` and the delete looks hung when it is merely slow. Watch it rather than
+forcing it:
+
+```bash
+kubectl get ns p-weblogic-tenants-v-acme-corp-uat -w
+kubectl -n p-weblogic-tenants-v-acme-corp-uat get replicationgroups.elasticache.services.k8s.aws
+```
+
+Removing the finalizer by hand orphans a running ElastiCache cluster that nothing is
+tracking any more, and it keeps billing. If you need tenants that tear down instantly,
+`cacheMode: in-tenant` deletes in seconds because there is no cloud resource behind it.
 
 ## Go client
 

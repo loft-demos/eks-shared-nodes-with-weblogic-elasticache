@@ -36,9 +36,11 @@ print(json.dumps({
     "spec": {
         "clusterRef": {"cluster": os.environ.get("CLUSTER", "loft-cluster")},
         "displayName": tenant,
-        # Required. The Argo CD integration mints a scoped access key per tenant and takes
-        # its owner from here; without it the tenant fails to reconcile with
-        # "access key has no valid owner". The UI sets this implicitly, the API does not.
+        # Set explicitly so the same body works through GitOps. The Argo CD integration
+        # mints a scoped access key per tenant and takes its owner from here; a
+        # kubectl-applied or Argo-CD-managed instance without it fails to reconcile with
+        # "access key has no valid owner". Through this API the Platform fills it in from
+        # the access key's own user, so it is belt and braces here and required there.
         "owner": {"user": os.environ.get("OWNER_USER", "admin")},
         "templateRef": {"name": template},
         # parameters is a YAML *string*, not an object.
@@ -70,11 +72,25 @@ echo "    created"
 
 echo "==> Waiting for the tenant to report ready"
 for _ in $(seq 1 60); do
-  PHASE="$(curl -sS "${API}/namespaces/${PROJECT_NS}/virtualclusterinstances/${TENANT}" \
+  STATUS="$(curl -sS "${API}/namespaces/${PROJECT_NS}/virtualclusterinstances/${TENANT}" \
     -H "Authorization: Bearer ${ACCESS_KEY}" \
-    | python3 -c 'import json,sys; print((json.load(sys.stdin).get("status") or {}).get("phase",""))' 2>/dev/null || true)"
+    | python3 -c 'import json,sys
+s = (json.load(sys.stdin).get("status") or {})
+print("\t".join([s.get("phase",""), s.get("reason",""), s.get("message","")]))' 2>/dev/null || true)"
+  PHASE="${STATUS%%$'\t'*}"
   printf '\r    phase: %-14s' "${PHASE:-unknown}"
   [[ "$PHASE" == "Ready" ]] && { echo; break; }
+  # Fail fast and say why. Without this a template that will never render just spins for
+  # five minutes and then reports a timeout, which hides the actual reason.
+  if [[ "$PHASE" == "Failed" ]]; then
+    echo
+    echo "    ${STATUS#*$'\t'}" | tr '\t' ' ' >&2
+    echo >&2
+    echo "    A template render failure names the Go type, not the parameter. \"invalid" >&2
+    echo "    duration\" means a duration field rendered empty - check that every" >&2
+    echo "    parameter the template reads has a value or a default." >&2
+    exit 1
+  fi
   sleep 5
 done
 
