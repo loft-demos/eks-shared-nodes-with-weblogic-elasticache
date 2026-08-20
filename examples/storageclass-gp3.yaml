@@ -1,0 +1,20 @@
+# EKS installs the EBS CSI driver as an addon but does not create a StorageClass, and the
+# legacy gp2 class that ships with the cluster uses the in-tree kubernetes.io/aws-ebs
+# provisioner, which was removed in Kubernetes 1.31. On 1.36 it provisions nothing, so
+# every PVC sits Pending with "unbound immediate PersistentVolumeClaims".
+#
+# vCluster tenant control planes use a PVC for embedded etcd, so without this no tenant
+# ever starts.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+parameters:
+  type: gp3
+  encrypted: "true"

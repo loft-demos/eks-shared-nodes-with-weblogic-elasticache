@@ -41,6 +41,32 @@ spec:
           # This is what makes the single host-side operator adopt each new tenant's
           # backing namespace with no manual step.
           weblogic-operator: enabled
+      objects: |-
+        # The WebLogic server and introspector pods are created here, on the Control Plane
+        # Cluster, so the Oracle Container Registry pull secret has to exist in THIS
+        # namespace - not in the tenant's wi namespace where the developer sees the Domain.
+        #
+        # A Platform ProjectSecret is only materialised into a namespace that carries a
+        # stub Secret with the loft.sh/project-secret-name label; the Platform then
+        # replaces the placeholder data. Putting the stub here means every tenant gets it
+        # automatically instead of someone remembering to create it per tenant.
+        #
+        # Without this, kubelet cannot find the secret named in the Domain's
+        # imagePullSecrets, silently falls back to an anonymous pull, and the introspector
+        # loops on "401 Unauthorized ... failed to fetch anonymous token" - which reads
+        # like a registry problem rather than a missing secret.
+        #
+        # e30K is base64 of {} : Kubernetes requires valid JSON in a dockerconfigjson
+        # Secret even while it is still a placeholder.
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: ocr-pull-secret
+          labels:
+            loft.sh/project-secret-name: ocr-pull-secret
+        type: kubernetes.io/dockerconfigjson
+        data:
+          .dockerconfigjson: e30K
     pro:
       enabled: true
     helmRelease:
